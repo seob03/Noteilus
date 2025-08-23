@@ -1,0 +1,27 @@
+services:
+  noteilus_client:
+    image: noteilus_client:v1
+    build: ./fe
+    ports:
+      - 80:80 # Nginx가 80 포트로 서빙함
+    volumes:
+      - ./fe:/app
+
+  noteilus_server:
+    image: noteilus_server:v1
+    build:
+      context: .
+      dockerfile: be/dockerfile
+    ports:
+      - 8080:8080
+
+    depends_on:
+      - noteilus_client
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./be # 지켜볼 경로
+          target: /app
+
+        - action: rebuild
+          path: package.json

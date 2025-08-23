@@ -1,0 +1,14 @@
+# 백엔드 스테이지
+FROM node:22-alpine
+WORKDIR /app
+COPY be/package*.json .
+RUN npm install
+
+ENV NODE_ENV=production
+
+COPY be/ .
+
+EXPOSE 8080
+
+USER node
+CMD ["node", "server.js"]
