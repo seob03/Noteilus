@@ -8,6 +8,7 @@ services:
       - ./fe:/app
     depends_on:
       - noteilus_server
+    
 
   noteilus_server:
     image: noteilus_server:v1

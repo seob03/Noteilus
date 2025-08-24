@@ -25,7 +25,7 @@ interface BreadcrumbItem {
 interface MainPageProps {
   isDarkMode: boolean;
   isLoggedIn: boolean;
-  userEmail: string;
+  userEmail: string | null;
   userName: string;
   userPicture: string | null;
   userId: string | null;
