@@ -58,6 +58,7 @@ class KakaoAuthController {
       res.json({
         user: {
           id: req.user.kakaoId,
+          kakaoId: req.user.kakaoId,
           email: req.user.email,
           name: req.user.name,
           picture: req.user.picture

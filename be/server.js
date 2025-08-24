@@ -14,6 +14,9 @@ const configurePassport = require('./src/config/passport');
 const createGoogleAuthRoutes = require('./src/routes/googleAuthRoutes');
 const createKakaoAuthRoutes = require('./src/routes/kakaoAuthRoutes');
 
+// PDF 라우트
+const { createPdfRoutes } = require('./src/routes/pdfRoutes');
+
 // CORS 설정
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost',
@@ -51,6 +54,8 @@ connectDB().then((db) => {
   app.use('/auth', createGoogleAuthRoutes(db));
   // 카카오 인증 라우트 설정
   app.use('/auth', createKakaoAuthRoutes(db));
+  // PDF 라우트 설정
+  app.use(createPdfRoutes(db));
 
   app.listen(process.env.PORT || 8080, () => {
     console.log('API 서버 실행 성공');

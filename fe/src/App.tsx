@@ -23,6 +23,7 @@ export default function App() {
   const [userEmail, setUserEmail] = useState("junpio0812@gmail.com");
   const [userName, setUserName] = useState("사용자");
   const [userPicture, setUserPicture] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
   // 로그인 상태 확인
   useEffect(() => {
@@ -42,6 +43,7 @@ export default function App() {
           setUserEmail(data.user.email);
           setUserName(data.user.name);
           setUserPicture(data.user.picture);
+          setUserId(data.user.id);
           console.log('로그인 상태 확인됨:', data.user);
         } else {
           console.log('로그인되지 않음 - 응답:', response.status);
@@ -92,17 +94,20 @@ export default function App() {
         setIsLoggedIn(false);
         setUserEmail("junpio0812@gmail.com");
         setUserName("사용자");
+        setUserId(null);
         setCurrentPage("login");
       } else {
         console.error('로그아웃 실패:', response.status);
-        // 실패해도 로컬 상태는 업데이트
-        setIsLoggedIn(false);
-        setCurrentPage("login");
+              // 실패해도 로컬 상태는 업데이트
+      setIsLoggedIn(false);
+      setUserId(null);
+      setCurrentPage("login");
       }
     } catch (error) {
       console.error('로그아웃 요청 실패:', error);
       // 에러가 발생해도 로컬 상태는 업데이트
       setIsLoggedIn(false);
+      setUserId(null);
       setCurrentPage("login");
     }
   };
@@ -171,6 +176,7 @@ export default function App() {
         userEmail={userEmail}
         userName={userName}
         userPicture={userPicture}
+        userId={userId}
         onSettingsClick={handleSettingsClick}
         onLoginClick={handleLoginClick}
         onPdfClick={handlePdfClick}

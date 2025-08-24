@@ -7,9 +7,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { FolderSelectDialog } from './FolderSelectDialog';
 import { toast } from 'sonner';
-import imgImage6 from "figma:asset/e9a0d61373704e4596ea1173caa9d1de420f2698.png";
-import imgImage7 from "figma:asset/6353026fb0e2862bc1a5ad996e0f0d7d95afd10c.png";
-import imgImage9 from "figma:asset/40509a12dc082017f1e25830676c147259cdc3e1.png";
 
 interface Document {
   id: string;
@@ -31,6 +28,7 @@ interface MainPageProps {
   userEmail: string;
   userName: string;
   userPicture: string | null;
+  userId: string | null;
   onSettingsClick: () => void;
   onLoginClick: () => void;
   onPdfClick: (doc: Document) => void;
@@ -431,7 +429,7 @@ DraggableDocument.displayName = 'DraggableDocument';
 DroppableFolder.displayName = 'DroppableFolder';
 DraggableCard.displayName = 'DraggableCard';
 
-export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPicture, onSettingsClick, onLoginClick, onPdfClick }: MainPageProps) {
+export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPicture, userId, onSettingsClick, onLoginClick, onPdfClick }: MainPageProps) {
   // 로그인 상태 디버깅
   console.log('MainPage - isLoggedIn:', isLoggedIn);
   console.log('MainPage - userEmail:', userEmail);
@@ -458,80 +456,6 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
       id: 'add',
       name: '추가',
       type: 'pdf'
-    },
-    {
-      id: 'pdf1',
-      name: 'Week 4 Data preprocessing',
-      type: 'pdf',
-      previewImage: imgImage6
-    },
-    {
-      id: 'pdf2',
-      name: 'Contents',
-      type: 'pdf',
-      previewImage: imgImage7
-    },
-    {
-      id: 'pdf3',
-      name: 'Scaling and Shifting',
-      type: 'pdf',
-      previewImage: imgImage9
-    },
-    {
-      id: 'pdf4',
-      name: 'PDF #4',
-      type: 'pdf',
-      previewImage: imgImage6
-    },
-    {
-      id: 'pdf5',
-      name: 'PDF #5',
-      type: 'pdf',
-      previewImage: imgImage7
-    },
-    {
-      id: 'folder1',
-      name: 'Folder #1',
-      type: 'folder',
-      children: [
-        {
-          id: 'pdf-in-folder1',
-          name: 'PDF in Folder #1',
-          type: 'pdf',
-          previewImage: imgImage6
-        },
-        {
-          id: 'pdf-in-folder2',
-          name: 'PDF in Folder #2',
-          type: 'pdf',
-          previewImage: imgImage7
-        }
-      ]
-    },
-    {
-      id: 'folder2',
-      name: 'Folder #2',
-      type: 'folder',
-      children: [
-        {
-          id: 'pdf-in-folder2-1',
-          name: 'Document A',
-          type: 'pdf',
-          previewImage: imgImage9
-        },
-        {
-          id: 'pdf-in-folder2-2',
-          name: 'Document B',
-          type: 'pdf',
-          previewImage: imgImage6
-        },
-        {
-          id: 'pdf-in-folder2-3',
-          name: 'Document C',
-          type: 'pdf',
-          previewImage: imgImage7
-        }
-      ]
     }
   ]);
 
@@ -803,11 +727,65 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     setSidebarOpen(!sidebarOpen);
   };
 
+  // PDF 파일 업로드 함수
+  const uploadPdfFile = async (file: File) => {
+    try {
+      const formData = new FormData();
+      formData.append('pdf', file);
+
+      const response = await fetch('/api/pdfs/upload', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'PDF 업로드에 실패했습니다.');
+      }
+
+      const result = await response.json();
+      
+      // 새로 업로드된 PDF를 문서 목록에 추가
+      const newPdf: Document = {
+        id: result.pdfId,
+        name: result.fileName,
+        type: 'pdf',
+        previewImage: undefined
+      };
+
+      setDocuments(prev => [...prev.filter(doc => doc.id !== 'add'), newPdf, prev.find(doc => doc.id === 'add')!]);
+      toast.success('PDF가 성공적으로 업로드되었습니다!');
+      
+    } catch (error) {
+      console.error('PDF 업로드 에러:', error);
+      toast.error(error instanceof Error ? error.message : 'PDF 업로드에 실패했습니다.');
+    }
+  };
+
+  // 파일 선택 핸들러
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.type === 'application/pdf') {
+        uploadPdfFile(file);
+      } else {
+        toast.error('PDF 파일만 업로드 가능합니다.');
+      }
+    }
+    // 파일 입력 초기화
+    event.target.value = '';
+  };
+
   const handleAddClick = () => {
     if (!isLoggedIn) {
       setShowLoginModal(true);
     } else {
-      console.log('새 문서 추가');
+      // 숨겨진 파일 입력 트리거
+      const fileInput = document.getElementById('pdf-file-input') as HTMLInputElement;
+      if (fileInput) {
+        fileInput.click();
+      }
     }
   };
 
@@ -1215,6 +1193,15 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 숨겨진 PDF 파일 입력 */}
+      <input
+        id="pdf-file-input"
+        type="file"
+        accept=".pdf"
+        onChange={handleFileSelect}
+        style={{ display: 'none' }}
+      />
     </div>
   );
 }

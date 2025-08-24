@@ -50,6 +50,7 @@ class GoogleAuthController {
       res.json({
         user: {
           id: req.user.googleId,
+          googleId: req.user.googleId,
           email: req.user.email,
           name: req.user.name,
           picture: req.user.picture

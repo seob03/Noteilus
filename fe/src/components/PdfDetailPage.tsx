@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Label } from './ui/label';
 import { Separator } from './ui/separator';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import imgImage6 from "figma:asset/e9a0d61373704e4596ea1173caa9d1de420f2698.png";
 import imgImage7 from "figma:asset/6353026fb0e2862bc1a5ad996e0f0d7d95afd10c.png";
 import imgImage9 from "figma:asset/40509a12dc082017f1e25830676c147259cdc3e1.png";
