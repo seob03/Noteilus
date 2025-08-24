@@ -20,7 +20,41 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>("main");
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userEmail] = useState("junpio0812@gmail.com");
+  const [userEmail, setUserEmail] = useState("junpio0812@gmail.com");
+  const [userName, setUserName] = useState("사용자");
+  const [userPicture, setUserPicture] = useState<string | null>(null);
+
+  // 로그인 상태 확인
+  useEffect(() => {
+    const checkAuthStatus = async () => {
+      try {
+        console.log('로그인 상태 확인 시작...');
+        const response = await fetch('/auth/me', {
+          credentials: 'include'
+        });
+        
+        console.log('로그인 상태 확인 응답:', response.status, response.statusText);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('로그인 상태 확인 성공:', data);
+          setIsLoggedIn(true);
+          setUserEmail(data.user.email);
+          setUserName(data.user.name);
+          setUserPicture(data.user.picture);
+          console.log('로그인 상태 확인됨:', data.user);
+        } else {
+          console.log('로그인되지 않음 - 응답:', response.status);
+          setIsLoggedIn(false);
+        }
+      } catch (error) {
+        console.error('로그인 상태 확인 실패:', error);
+        setIsLoggedIn(false);
+      }
+    };
+
+    checkAuthStatus();
+  }, []);
   const [selectedPdf, setSelectedPdf] = useState<{
     id: string;
     name: string;
@@ -44,9 +78,33 @@ export default function App() {
     setSelectedPdf(null);
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setCurrentPage("main");
+  const handleLogout = async () => {
+    try {
+      // 서버에 로그아웃 요청
+      const response = await fetch('/auth/logout', {
+        method: 'GET',
+        credentials: 'include'
+      });
+
+      if (response.ok) {
+        console.log('로그아웃 성공');
+        // 로컬 상태 업데이트
+        setIsLoggedIn(false);
+        setUserEmail("junpio0812@gmail.com");
+        setUserName("사용자");
+        setCurrentPage("login");
+      } else {
+        console.error('로그아웃 실패:', response.status);
+        // 실패해도 로컬 상태는 업데이트
+        setIsLoggedIn(false);
+        setCurrentPage("login");
+      }
+    } catch (error) {
+      console.error('로그아웃 요청 실패:', error);
+      // 에러가 발생해도 로컬 상태는 업데이트
+      setIsLoggedIn(false);
+      setCurrentPage("login");
+    }
   };
 
   const handleToggleDarkMode = () => {
@@ -111,6 +169,8 @@ export default function App() {
         isDarkMode={isDarkMode}
         isLoggedIn={isLoggedIn}
         userEmail={userEmail}
+        userName={userName}
+        userPicture={userPicture}
         onSettingsClick={handleSettingsClick}
         onLoginClick={handleLoginClick}
         onPdfClick={handlePdfClick}

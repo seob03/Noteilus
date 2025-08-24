@@ -9,8 +9,6 @@ function createKakaoAuthRoutes(db) {
   /**
    * @route GET /auth/kakao
    * @desc 카카오 로그인 시작
-   * @access Public
-   * @author 이민섭
    */
   router.get('/kakao', (req, res, next) => {
     console.log('Kakao OAuth 시작');
@@ -22,8 +20,6 @@ function createKakaoAuthRoutes(db) {
   /**
    * @route GET /auth/kakao/callback
    * @desc 카카오 로그인 콜백
-   * @access Public
-   * @author 이민섭
    */
   router.get('/kakao/callback',
     passport.authenticate('kakao', {

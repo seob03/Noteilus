@@ -14,10 +14,9 @@ const configurePassport = require('./src/config/passport');
 const createGoogleAuthRoutes = require('./src/routes/googleAuthRoutes');
 const createKakaoAuthRoutes = require('./src/routes/kakaoAuthRoutes');
 
-
 // CORS 설정
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: process.env.FRONTEND_URL || 'http://localhost',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -43,14 +42,8 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-let server;
-let dbInstance;
 
 connectDB().then((db) => {
-  dbInstance = db; // 종료 시 사용하기 위해 저장
-
-  // DB 연결을 app.locals에 저장 (라우트에서 사용하기 위해)
-  app.locals.db = db;
 
   // Passport 설정
   configurePassport(db);
@@ -59,7 +52,7 @@ connectDB().then((db) => {
   // 카카오 인증 라우트 설정
   app.use('/auth', createKakaoAuthRoutes(db));
 
-  server = app.listen(process.env.PORT || 8080, () => {
+  app.listen(process.env.PORT || 8080, () => {
     console.log('API 서버 실행 성공');
   });
 

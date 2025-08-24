@@ -9,8 +9,6 @@ function createGoogleAuthRoutes(db) {
   /**
    * @route GET /auth/google
    * @desc 구글 로그인 시작
-   * @access Public
-   * @author 이민섭
    */
   router.get('/google', (req, res, next) => {
     console.log('Google OAuth 시작');
@@ -22,8 +20,6 @@ function createGoogleAuthRoutes(db) {
   /**
    * @route GET /auth/google/callback
    * @desc 구글 로그인 콜백
-   * @access Public
-   * @author 이민섭
    */
   router.get('/google/callback', 
     passport.authenticate('google', { 

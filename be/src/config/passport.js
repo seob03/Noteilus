@@ -11,10 +11,7 @@ function configurePassport(db) {
 
   // 환경변수 검증
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    console.error('Google OAuth 환경변수가 설정되지 않았습니다!');
-    console.error('.env 파일에 다음을 추가하세요:');
-    console.error('GOOGLE_CLIENT_ID=your_google_client_id');
-    console.error('GOOGLE_CLIENT_SECRET=your_google_client_secret');
+    console.error('Google OAuth 환경변수가 설정되지 않았습니다.');
     return; // Passport 설정을 건너뛰고 계속 진행
   }
 
@@ -58,10 +55,8 @@ function configurePassport(db) {
 
   // 카카오 OAuth 환경변수 검증
   if (!process.env.KAKAO_CLIENT_ID || !process.env.KAKAO_CLIENT_SECRET) {
-    console.error('Kakao OAuth 환경변수가 설정되지 않았습니다!');
-    console.error('.env 파일에 다음을 추가하세요:');
-    console.error('KAKAO_CLIENT_ID=your_kakao_client_id');
-    console.error('KAKAO_CLIENT_SECRET=your_kakao_client_secret');
+    console.error('Kakao OAuth 환경변수가 설정되지 않았습니다.');
+    return; // Passport 설정을 건너뛰고 계속 진행
   } else {
     // Kakao OAuth 전략 설정
     passport.use(new KakaoStrategy({
@@ -76,10 +71,7 @@ function configurePassport(db) {
         return done(error, null);
       }
     }));
-
-    console.log('Passport Kakao OAuth 전략 설정 완료');
   }
-  console.log('Passport Google OAuth 전략 설정 완료');
 }
 
 module.exports = configurePassport;

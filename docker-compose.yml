@@ -6,6 +6,8 @@ services:
       - 80:80 # Nginx가 80 포트로 서빙함
     volumes:
       - ./fe:/app
+    depends_on:
+      - noteilus_server
 
   noteilus_server:
     image: noteilus_server:v1
@@ -38,8 +40,6 @@ services:
       - BACKEND_URL=${BACKEND_URL}
       
 
-    depends_on:
-      - noteilus_client
     develop:
       watch:
         - action: sync+restart

@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { FolderSelectDialog } from './FolderSelectDialog';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import imgImage6 from "figma:asset/e9a0d61373704e4596ea1173caa9d1de420f2698.png";
 import imgImage7 from "figma:asset/6353026fb0e2862bc1a5ad996e0f0d7d95afd10c.png";
 import imgImage9 from "figma:asset/40509a12dc082017f1e25830676c147259cdc3e1.png";
@@ -29,6 +29,8 @@ interface MainPageProps {
   isDarkMode: boolean;
   isLoggedIn: boolean;
   userEmail: string;
+  userName: string;
+  userPicture: string | null;
   onSettingsClick: () => void;
   onLoginClick: () => void;
   onPdfClick: (doc: Document) => void;
@@ -391,7 +393,7 @@ const DroppableBreadcrumb: React.FC<{
 
   if (action) {
     return (
-      <div ref={drop}>
+      <div ref={drop as unknown as React.RefObject<HTMLDivElement>}>
         <button
           onClick={action}
           className={`${isDarkMode ? 'text-[#efefef] hover:text-white' : 'text-gray-700 hover:text-gray-900'} transition-colors text-lg md:text-xl font-medium truncate hover:underline relative ${
@@ -409,7 +411,7 @@ const DroppableBreadcrumb: React.FC<{
   }
 
   return (
-    <div ref={drop}>
+    <div ref={drop as unknown as React.RefObject<HTMLDivElement>}>
       <h1 
         className={`${isDarkMode ? 'text-[#efefef]' : 'text-gray-900'} text-lg md:text-xl font-medium truncate relative ${
           isOver ? 'bg-blue-500 bg-opacity-20 px-2 py-1 rounded' : ''
@@ -429,7 +431,10 @@ DraggableDocument.displayName = 'DraggableDocument';
 DroppableFolder.displayName = 'DroppableFolder';
 DraggableCard.displayName = 'DraggableCard';
 
-export function MainPage({ isDarkMode, isLoggedIn, userEmail, onSettingsClick, onLoginClick, onPdfClick }: MainPageProps) {
+export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPicture, onSettingsClick, onLoginClick, onPdfClick }: MainPageProps) {
+  // 로그인 상태 디버깅
+  console.log('MainPage - isLoggedIn:', isLoggedIn);
+  console.log('MainPage - userEmail:', userEmail);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [documentsExpanded, setDocumentsExpanded] = useState(true);
@@ -859,14 +864,22 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, onSettingsClick, o
           {/* 상단 계정 섹션 */}
           <div className={`flex items-center justify-between mb-6 pb-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                <span className="text-white text-sm font-medium">
-                  {isLoggedIn ? userEmail.charAt(0).toUpperCase() : 'G'}
-                </span>
+              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center overflow-hidden">
+                {isLoggedIn && userPicture ? (
+                  <img 
+                    src={userPicture} 
+                    alt="프로필" 
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-white text-sm font-medium">
+                    {isLoggedIn ? (userEmail ? userEmail.charAt(0).toUpperCase() : userName.charAt(0).toUpperCase()) : 'G'}
+                  </span>
+                )}
               </div>
               <div className="flex flex-col">
                 <span className={`${isDarkMode ? 'text-[#efefef]' : 'text-gray-700'} text-sm font-medium`}>
-                  {isLoggedIn ? userEmail : 'Guest User'}
+                  {isLoggedIn ? userName : 'Guest User'}
                 </span>
                 <span className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs`}>
                   {isLoggedIn ? '로그인됨' : '게스트'}
@@ -1164,13 +1177,13 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, onSettingsClick, o
       <FolderSelectDialog
         isOpen={showFolderDialog}
         onClose={() => setShowFolderDialog(false)}
-        onSelect={handleMoveSelectedDocuments}
+        onSelectFolder={handleMoveSelectedDocuments}
         documents={documents}
         isDarkMode={isDarkMode}
       />
 
       {/* 로그인 모달 */}
-      <Dialog open={showLoginModal} onOpenChange={setShowLoginModal}>
+      <Dialog open={showLoginModal && !isLoggedIn} onOpenChange={setShowLoginModal}>
         <DialogContent className={`${isDarkMode ? 'bg-[#121214] border-gray-600' : 'bg-white border-gray-200'} max-w-md`}>
           <DialogHeader>
             <DialogTitle className={isDarkMode ? 'text-[#efefef]' : 'text-gray-900'}>

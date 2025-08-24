@@ -8,6 +8,12 @@ class KakaoAuthController {
   // 카카오 로그인 성공 시 호출
   async kakaoLoginSuccess(profile) {
     try {
+      console.log('카카오 프로필 정보:', profile);
+      console.log('카카오 프로필 ID:', profile.id);
+      console.log('카카오 프로필 이름:', profile.displayName);
+      console.log('카카오 계정 정보:', profile._json.kakao_account);
+      console.log('카카오 속성 정보:', profile._json.properties);
+      
       const userData = {
         kakaoId: profile.id,
         email: profile._json.kakao_account?.email || null,
@@ -15,7 +21,9 @@ class KakaoAuthController {
         picture: profile._json.properties?.profile_image || null
       };
 
+      console.log('저장할 사용자 데이터:', userData);
       const user = await this.userModel.updateOrCreate(userData);
+      console.log('저장된 사용자:', user);
       return user;
     } catch (error) {
       console.error('Kakao login error:', error);
@@ -67,9 +75,19 @@ class KakaoAuthController {
 
   // 로그인 콜백 처리
   async loginCallback(req, res) {
-    console.log('카카오 로그인 콜백');
+    console.log('카카오 로그인 콜백 시작');
+    console.log('req.user:', req.user);
+    console.log('req.isAuthenticated():', req.isAuthenticated());
+    console.log('FRONTEND_URL:', process.env.FRONTEND_URL);
+    
+    if (!req.isAuthenticated()) {
+      console.error('카카오 로그인 실패: 인증되지 않음');
+      return res.redirect(process.env.FRONTEND_URL || 'http://localhost');
+    }
+    
+    console.log('카카오 로그인 성공, 리다이렉트 중...');
     // 로그인 성공 시 프론트엔드로 리다이렉트
-    res.redirect(process.env.FRONTEND_URL || 'http://localhost:3000');
+    res.redirect(process.env.FRONTEND_URL || 'http://localhost');
   }
 }
 
