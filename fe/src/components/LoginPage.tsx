@@ -61,10 +61,19 @@ function NoteilusLogo() {
 }
 
 export function LoginPage({ onLoginSuccess, isDarkMode }: LoginPageProps) {
-  const handleLogin = (provider: string) => {
-    console.log(`${provider} 로그인 시도`);
-    // 실제 로그인 로직 구현
-    onLoginSuccess();
+  const handleOauthLogin = async (provider: string) => {
+    // oauth 로그인 요청 
+    try {
+      if (provider === 'google') {
+        window.location.href = '/auth/google';
+      } else if (provider === 'kakao') {
+        window.location.href = '/auth/kakao';
+      } else {
+        console.error('지원하지 않는 로그인 방법:', provider);
+      }
+    } catch (error) {
+      console.error(`${provider} 로그인 요청 실패:`, error);
+    }
   };
 
   return (
@@ -96,7 +105,7 @@ export function LoginPage({ onLoginSuccess, isDarkMode }: LoginPageProps) {
           <div className="space-y-4">
             {/* Google 로그인 */}
             <Button
-              onClick={() => handleLogin('Google')}
+              onClick={() => handleOauthLogin('google')}
               variant="secondary"
               className="w-full h-14 bg-[#333030] hover:bg-[#404040] text-[#d9d9d9] border-0 flex items-center justify-center gap-4 text-lg font-semibold"
             >
@@ -106,7 +115,7 @@ export function LoginPage({ onLoginSuccess, isDarkMode }: LoginPageProps) {
 
             {/* 카카오 로그인 */}
             <Button
-              onClick={() => handleLogin('Kakao')}
+              onClick={() => handleOauthLogin('kakao')}
               className="w-full h-14 bg-[#ffc107] hover:bg-[#ffca28] text-[#3e3b3b] border-0 flex items-center justify-center gap-4 text-lg font-semibold"
             >
               <KakaoIcon />
