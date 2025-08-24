@@ -459,6 +459,55 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     }
   ]);
 
+  // PDF 목록 불러오기
+  const loadPdfs = async () => {
+    if (!isLoggedIn) return;
+    
+    try {
+      const response = await fetch('/api/pdfs', {
+        method: 'GET',
+        credentials: 'include'
+      });
+
+      if (response.ok) {
+        const pdfs = await response.json();
+        
+        // PDF 데이터를 Document 형태로 변환
+        const pdfDocuments: Document[] = pdfs.map((pdf: any) => ({
+          id: pdf.id,
+          name: pdf.name,
+          type: 'pdf' as const,
+          previewImage: undefined
+        }));
+
+        // "추가" 버튼을 마지막에 유지
+        setDocuments([...pdfDocuments, {
+          id: 'add',
+          name: '추가',
+          type: 'pdf'
+        }]);
+      } else {
+        console.error('PDF 목록을 불러올 수 없습니다:', response.status);
+      }
+    } catch (error) {
+      console.error('PDF 목록 불러오기 에러:', error);
+    }
+  };
+
+  // 로그인 상태가 변경될 때 PDF 목록 불러오기
+  useEffect(() => {
+    if (isLoggedIn) {
+      loadPdfs();
+    } else {
+      // 로그아웃 시 문서 목록 초기화
+      setDocuments([{
+        id: 'add',
+        name: '추가',
+        type: 'pdf'
+      }]);
+    }
+  }, [isLoggedIn]);
+
   // 화면 크기 감지
   useEffect(() => {
     const checkIsMobile = () => {
@@ -730,8 +779,17 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
   // PDF 파일 업로드 함수
   const uploadPdfFile = async (file: File) => {
     try {
+      console.log('PDF 업로드 시작:', {
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type
+      });
+
       const formData = new FormData();
       formData.append('pdf', file);
+
+      // 업로드 시작 알림
+      const uploadToast = toast.loading('PDF 업로드 중...');
 
       const response = await fetch('/api/pdfs/upload', {
         method: 'POST',
@@ -739,22 +797,25 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
         credentials: 'include'
       });
 
+      console.log('PDF 업로드 응답:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('PDF 업로드 실패:', errorData);
+        toast.dismiss(uploadToast);
         throw new Error(errorData.error || 'PDF 업로드에 실패했습니다.');
       }
 
       const result = await response.json();
+      console.log('PDF 업로드 성공:', result);
       
-      // 새로 업로드된 PDF를 문서 목록에 추가
-      const newPdf: Document = {
-        id: result.pdfId,
-        name: result.fileName,
-        type: 'pdf',
-        previewImage: undefined
-      };
-
-      setDocuments(prev => [...prev.filter(doc => doc.id !== 'add'), newPdf, prev.find(doc => doc.id === 'add')!]);
+      // PDF 목록 새로고침
+      await loadPdfs();
+      toast.dismiss(uploadToast);
       toast.success('PDF가 성공적으로 업로드되었습니다!');
       
     } catch (error) {
@@ -768,6 +829,20 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     const file = event.target.files?.[0];
     if (file) {
       if (file.type === 'application/pdf') {
+        // 파일 크기 검증 (500MB)
+        const maxSize = 500 * 1024 * 1024; // 500MB
+        if (file.size > maxSize) {
+          const sizeInMB = Math.round(file.size / (1024 * 1024));
+          toast.error(`파일 크기가 500MB를 초과합니다. (현재: ${sizeInMB}MB)`);
+          return;
+        }
+        
+        // 파일 크기 경고 (100MB 이상시)
+        const warningSize = 100 * 1024 * 1024; // 100MB
+        if (file.size > warningSize) {
+          const sizeInMB = Math.round(file.size / (1024 * 1024));
+          toast.warning(`큰 파일입니다 (${sizeInMB}MB). 업로드에 시간이 걸릴 수 있습니다.`);
+        }
         uploadPdfFile(file);
       } else {
         toast.error('PDF 파일만 업로드 가능합니다.');

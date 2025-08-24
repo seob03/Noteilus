@@ -10,7 +10,7 @@ const s3 = new AWS.S3({
   region: process.env.AWS_REGION || 'ap-northeast-2'
 });
 
-const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || 'noteilus-pdfs';
+const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || 'noteilus-bucket';
 
 // Multer 설정 - 메모리에 파일 저장 (S3로 업로드 후 삭제)
 const storage = multer.memoryStorage();
@@ -28,7 +28,7 @@ const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB 제한
+    fileSize: 500 * 1024 * 1024 // 500MB
   }
 });
 
@@ -150,26 +150,36 @@ class PdfController {
   // PDF 다운로드 (S3에서 직접 다운로드)
   async downloadPdf(req, res) {
     try {
+      console.log('PDF 다운로드 요청:', req.params);
+      
       if (!req.user) {
+        console.log('사용자 인증 실패');
         return res.status(401).json({ error: '로그인이 필요합니다.' });
       }
 
       const { pdfId } = req.params;
+      console.log('요청된 PDF ID:', pdfId);
 
       if (!ObjectId.isValid(pdfId)) {
+        console.log('유효하지 않은 PDF ID:', pdfId);
         return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
       }
 
       // DB에서 PDF 정보 조회
       const pdf = await this.pdfDocument.findById(pdfId);
+      console.log('DB에서 조회된 PDF:', pdf);
       
       if (!pdf) {
+        console.log('PDF를 찾을 수 없음');
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
       }
 
       // 권한 확인 (본인의 PDF만 다운로드 가능)
       const userId = req.user.googleId || req.user.kakaoId;
+      console.log('현재 사용자 ID:', userId, 'PDF 소유자 ID:', pdf.userId);
+      
       if (pdf.userId !== userId) {
+        console.log('권한 없음');
         return res.status(403).json({ error: '다운로드 권한이 없습니다.' });
       }
 
@@ -178,8 +188,11 @@ class PdfController {
         Bucket: BUCKET_NAME,
         Key: pdf.s3Key
       };
+      
+      console.log('S3 다운로드 파라미터:', downloadParams);
 
       const s3Object = await s3.getObject(downloadParams).promise();
+      console.log('S3에서 파일 다운로드 성공, 파일 크기:', s3Object.Body.length);
       
       // PDF 파일 응답
       res.setHeader('Content-Type', 'application/pdf');

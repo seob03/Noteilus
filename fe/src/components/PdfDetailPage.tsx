@@ -7,9 +7,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Label } from './ui/label';
 import { Separator } from './ui/separator';
 import { toast } from 'sonner';
-import imgImage6 from "figma:asset/e9a0d61373704e4596ea1173caa9d1de420f2698.png";
-import imgImage7 from "figma:asset/6353026fb0e2862bc1a5ad996e0f0d7d95afd10c.png";
-import imgImage9 from "figma:asset/40509a12dc082017f1e25830676c147259cdc3e1.png";
+
+// react-pdf import
+import { Document, Page, pdfjs } from 'react-pdf';
+
 
 interface PdfDetailPageProps {
   pdfId: string;
@@ -36,12 +37,6 @@ interface DrawingPath {
   pageId: number;
 }
 
-const PDF_PAGES = [
-  { id: 1, image: imgImage6, title: "Week 4 Data preprocessing" },
-  { id: 2, image: imgImage7, title: "Contents" },
-  { id: 3, image: imgImage9, title: "Scaling and Shifting" }
-];
-
 const COLORS = ['#000000', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff'];
 const SIZES = [2, 5, 10];
 
@@ -53,8 +48,21 @@ const LANGUAGE_OPTIONS = [
   { value: 'ko-to-zh', label: '한국어 → 中文' },
   { value: 'zh-to-ko', label: '中文 → 한국어' },
 ];
-
 export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailPageProps) {
+  
+  // react-pdf 워커 설정 - public 폴더의 워커 사용
+  useEffect(() => {
+    // public 폴더의 워커 파일 사용
+    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+    console.log('PDF 워커 설정 완료:', pdfjs.GlobalWorkerOptions.workerSrc);
+  }, []);
+  
+  // PDF 상태
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [numPages, setNumPages] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
   // 사이드바 상태 - 상호 배타적
   const [mapSidebarOpen, setMapSidebarOpen] = useState(false);
   const [aiSidebarOpen, setAiSidebarOpen] = useState(false);
@@ -62,7 +70,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages] = useState(PDF_PAGES.length);
+  const [totalPages, setTotalPages] = useState(0);
   const [isResizing, setIsResizing] = useState(false);
   const [pageInputValue, setPageInputValue] = useState('1');
   
@@ -89,13 +97,50 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [paths, setPaths] = useState<DrawingPath[]>([]);
   const [currentPath, setCurrentPath] = useState<DrawingPoint[]>([]);
 
-  // PDF 이미지 크기 상태
-  const [pdfDimensions, setPdfDimensions] = useState<{[key: number]: {width: number, height: number}}>({});
-
-  const canvasRefs = useRef<{ [key: number]: HTMLCanvasElement | null }>({});
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfViewerRef = useRef<HTMLDivElement>(null);
-  const imageRefs = useRef<{ [key: number]: HTMLImageElement | null }>({});
+  const canvasRefs = useRef<{ [key: number]: HTMLCanvasElement }>({});
+  
+    // PDF 다운로드 및 로드
+  const loadPdf = async () => {
+    try {
+      console.log('PDF 로드 시작, PDF ID:', pdfId);
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await fetch(`/api/pdfs/${pdfId}/download`, {
+        method: 'GET',
+        credentials: 'include'
+      });
+
+      console.log('PDF 다운로드 응답 상태:', response.status, response.statusText);
+      console.log('PDF 다운로드 응답 헤더:', Object.fromEntries(response.headers.entries()));
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('PDF 다운로드 실패:', errorText);
+        throw new Error(`PDF를 다운로드할 수 없습니다. (${response.status})`);
+      }
+
+      const pdfBlob = await response.blob();
+      console.log('PDF Blob 생성 완료, 크기:', pdfBlob.size, '타입:', pdfBlob.type);
+      
+      const url = URL.createObjectURL(pdfBlob);
+      console.log('PDF URL 생성:', url);
+      setPdfUrl(url);
+      setIsLoading(false);
+      
+    } catch (error) {
+      console.error('PDF 로드 에러:', error);
+      setError(error instanceof Error ? error.message : 'PDF를 로드할 수 없습니다.');
+      setIsLoading(false);
+    }
+  };
+
+  // 컴포넌트 마운트 시 PDF 로드
+  useEffect(() => {
+    loadPdf();
+  }, [pdfId]);
   
   // 채팅 자동 스크롤을 위한 ref
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
@@ -190,49 +235,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     }
   };
 
-  // PDF 이미지 로드 시 크기 저장
-  const handleImageLoad = (pageId: number, img: HTMLImageElement) => {
-    setPdfDimensions(prev => ({
-      ...prev,
-      [pageId]: {
-        width: img.naturalWidth,
-        height: img.naturalHeight
-      }
-    }));
-  };
 
-  // 캔버스 초기화
-  useEffect(() => {
-    const canvas = canvasRefs.current[currentPage];
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // 캔버스 크기를 PDF 컨테이너와 동일하게 설정
-    const updateCanvasSize = () => {
-      const container = canvas.parentElement;
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-        redrawCanvas(currentPage);
-      }
-    };
-
-    updateCanvasSize();
-    
-    // ResizeObserver로 컨테이너 크기 변화 감지
-    const resizeObserver = new ResizeObserver(updateCanvasSize);
-    const container = canvas.parentElement;
-    if (container) {
-      resizeObserver.observe(container);
-    }
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [currentPage, pdfDimensions]);
 
   // 캔버스 다시 그리기
   const redrawCanvas = useCallback((pageId: number) => {
@@ -525,45 +528,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     }
   }, [activeTab, translatedContent]);
 
-  // 현재 페이지 데이터 가져오기
-  const getCurrentPageData = () => {
-    return PDF_PAGES.find(page => page.id === currentPage);
-  };
 
-  const currentPageData = getCurrentPageData();
-
-  // 현재 페이지의 PDF 크기 계산 - 뷰포트에 딱 맞게 조정
-  const getCurrentPdfSize = () => {
-    if (!currentPageData || !pdfDimensions[currentPageData.id]) {
-      return { width: 700, height: 900 }; // 기본값
-    }
-
-    const { width: naturalWidth, height: naturalHeight } = pdfDimensions[currentPageData.id];
-    
-    // 뷰포트 크기 가져오기 - 정확한 계산
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    
-    // 헤더(64px) + 도구바(72px) = 136px 고정 영역 제외
-    const availableHeight = viewportHeight - 136;
-    const availableWidth = viewportWidth - 20; // 최소 패딩만
-    
-    // 자연스러운 비율 유지하면서 뷰포트에 딱 맞게
-    const aspectRatio = naturalWidth / naturalHeight;
-    
-    let width = Math.min(availableWidth * 0.9, 1000);
-    let height = width / aspectRatio;
-    
-    // 높이가 사용 가능한 높이를 초과하면 높이 기준으로 조정
-    if (height > availableHeight * 0.9) {
-      height = availableHeight * 0.9;
-      width = height * aspectRatio;
-    }
-
-    return { width: Math.floor(width), height: Math.floor(height) };
-  };
-
-  const pdfSize = getCurrentPdfSize();
 
   // AI 버튼 위치 계산 - 맵 사이드바가 열릴 때 동적으로 조정
   const getAiButtonRightPosition = () => {
@@ -693,51 +658,72 @@ Solves the problem where Gradient Descent shows different speeds depending on we
 
         {/* PDF 뷰어 및 캔버스 - 나머지 공간 전체 사용 */}
         <div className="flex-1 flex items-center justify-center overflow-hidden" ref={pdfViewerRef}>
-          <div className="flex justify-center items-center h-full" ref={containerRef}>
-            {currentPageData && (
-              <div className="flex flex-col items-center justify-center">
-                {/* PDF 페이지와 캔버스 컨테이너 */}
-                <div 
-                  className={`relative ${isDarkMode ? 'bg-white' : 'bg-white'} rounded-lg shadow-lg overflow-hidden`}
-                  style={{ 
-                    width: `${pdfSize.width}px`,
-                    height: `${pdfSize.height}px`
-                  }}
-                >
-                  {/* PDF 배경 이미지 */}
-                  <img
-                    src={currentPageData.image}
-                    alt={`Page ${currentPageData.id}`}
-                    className="w-full h-full object-contain"
-                    draggable={false}
-                    onLoad={(e) => handleImageLoad(currentPageData.id, e.currentTarget)}
-                  />
+          {/* 로딩 상태 */}
+          {isLoading && (
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+              <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>PDF를 로드하는 중...</p>
+            </div>
+          )}
+
+          {/* 에러 상태 */}
+          {error && (
+            <div className="text-center">
+              <p className={`${isDarkMode ? 'text-red-400' : 'text-red-600'} mb-4`}>{error}</p>
+              <Button onClick={loadPdf} className="bg-blue-500 hover:bg-blue-600 text-white">
+                다시 시도
+              </Button>
+            </div>
+          )}
+
+                                           {/* react-pdf Document */}
+                  <Document
+                    file={pdfUrl}
+                    onLoadSuccess={({ numPages }) => {
+                      console.log('PDF 로드 성공, 페이지 수:', numPages);
+                      setNumPages(numPages);
+                      setTotalPages(numPages);
+                    }}
+                                         onLoadError={(error) => {
+                       console.error('PDF 로드 에러:', error);
+                       console.error('PDF 로드 에러 상세:', {
+                         message: error.message,
+                         name: error.name,
+                         stack: error.stack,
+                         pdfUrl: pdfUrl
+                       });
+                       setError(`PDF를 로드할 수 없습니다. (${error.message})`);
+                     }}
+                    onSourceError={(error) => {
+                      console.error('PDF 소스 에러:', error);
+                      setError('PDF 소스를 로드할 수 없습니다.');
+                    }}
+                    loading={
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                        <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>PDF를 로드하는 중...</p>
+                      </div>
+                    }
+                  >
+                    <Page
+                      pageNumber={currentPage}
+                      width={Math.min(window.innerWidth * 0.8, 800)}
+                      renderTextLayer={false}
+                      renderAnnotationLayer={false}
+                    />
+                  </Document>
                   
-                  {/* 필기 캔버스 - PDF 이미지와 정확히 겹치도록 */}
-                  <canvas
-                    ref={el => canvasRefs.current[currentPageData.id] = el}
-                    className={`absolute inset-0 w-full h-full ${currentTool === 'eraser' ? 'cursor-crosshair' : 'cursor-crosshair'}`}
-                    onMouseDown={(e) => handleMouseDown(e, currentPageData.id)}
-                    onMouseMove={(e) => handleMouseMove(e, currentPageData.id)}
-                    onMouseUp={() => handleMouseUp(currentPageData.id)}
-                    onMouseLeave={() => handleMouseUp(currentPageData.id)}
-                  />
-                </div>
-                
-                {/* 페이지 정보 - PDF 바로 아래 */}
-                <div className="text-center mt-2">
-                  <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm`}>
-                    {currentPageData.title} - 페이지 {currentPageData.id} / {totalPages}
-                  </span>
-                  <div className="mt-1">
-                    <span className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs`}>
-                      마우스 휠로 페이지를 이동할 수 있습니다
+                  {/* 페이지 정보 */}
+                  <div className="text-center mt-4">
+                    <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm`}>
+                      페이지 {currentPage} / {numPages}
                     </span>
+                    <div className="mt-1">
+                      <span className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs`}>
+                        마우스 휠로 페이지를 이동할 수 있습니다
+                      </span>
+                    </div>
                   </div>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
@@ -798,30 +784,31 @@ Solves the problem where Gradient Descent shows different speeds depending on we
             </div>
           </div>
 
-          {/* PDF 페이지 미리보기 - 스크롤 가능 */}
-          <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-            {PDF_PAGES.map((page) => (
-              <div key={page.id} className="relative">
-                <div
-                  className={`w-full rounded cursor-pointer transition-all hover:opacity-80 ${
-                    currentPage === page.id ? 'ring-2 ring-blue-500' : ''
-                  }`}
-                  onClick={() => setCurrentPage(page.id)}
-                >
-                  <img
-                    ref={el => imageRefs.current[page.id] = el}
-                    src={page.image}
-                    alt={`Page ${page.id}`}
-                    className="w-full h-auto object-contain rounded"
-                    onLoad={(e) => handleImageLoad(page.id, e.currentTarget)}
-                  />
-                </div>
-                <div className="absolute bottom-2 left-2 bg-black bg-opacity-70 text-white text-xs px-2 py-1 rounded">
-                  {page.id}
-                </div>
-              </div>
-            ))}
-          </div>
+                     {/* PDF 페이지 미리보기 - 스크롤 가능 */}
+           <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+             {Array.from(new Array(numPages), (el, index) => (
+               <div key={`page_${index + 1}`} className="relative">
+                 <div
+                   className={`w-full rounded cursor-pointer transition-all hover:opacity-80 ${
+                     currentPage === index + 1 ? 'ring-2 ring-blue-500' : ''
+                   }`}
+                   onClick={() => setCurrentPage(index + 1)}
+                 >
+                                                           <Document file={pdfUrl}>
+                      <Page
+                        pageNumber={index + 1}
+                        width={200}
+                        renderTextLayer={false}
+                        renderAnnotationLayer={false}
+                      />
+                    </Document>
+                 </div>
+                 <div className="absolute bottom-2 left-2 bg-black bg-opacity-70 text-white text-xs px-2 py-1 rounded">
+                   {index + 1}
+                 </div>
+               </div>
+             ))}
+           </div>
         </div>
 
         {/* PDF 맵 사이드바 리사이즈 핸들 */}
