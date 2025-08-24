@@ -101,6 +101,11 @@ export function LoginPage({ onLoginSuccess, isDarkMode }: LoginPageProps) {
             Noteilus
           </h1>
 
+          {/* 슬로건 */}
+          <p className="text-lg md:text-xl font-normal text-white/90 text-center mb-12 leading-relaxed">
+            Sail through your notes, discover knowledge.
+          </p>
+
           {/* 로그인 버튼들 */}
           <div className="space-y-4">
             {/* Google 로그인 */}

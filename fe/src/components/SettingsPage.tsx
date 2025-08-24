@@ -6,13 +6,18 @@ import { Separator } from './ui/separator';
 
 interface SettingsPageProps {
   onBack: () => void;
+  onLoginClick: () => void;
   onLogout: () => void;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
-  userEmail: string;
+  isLoggedIn: boolean;
+  userEmail: string | null;
+  userName: string;
+  userPicture: string | null;
+  userProvider: string | null;
 }
 
-export function SettingsPage({ onBack, onLogout, isDarkMode, onToggleDarkMode, userEmail }: SettingsPageProps) {
+export function SettingsPage({ onBack, onLoginClick, onLogout, isDarkMode, onToggleDarkMode, isLoggedIn, userEmail, userName, userPicture, userProvider }: SettingsPageProps) {
   return (
     <div className={`min-h-screen flex ${isDarkMode ? 'dark' : ''}`}>
       {/* 좌측 사이드바 */}
@@ -29,10 +34,20 @@ export function SettingsPage({ onBack, onLogout, isDarkMode, onToggleDarkMode, u
         {/* 계정 정보 */}
         <div className="flex items-center gap-3 mb-8">
           <div className="w-9 h-9 bg-[#d9d9d9] rounded-full flex items-center justify-center">
-            <span className="text-black font-medium">김</span>
+            {isLoggedIn && userPicture ? (
+              <img
+              src={userPicture}
+              alt="프로필"
+              className="w-full h-full object-cover rounded-full"
+              />
+            ) : (
+              <span className="text-black font-medium">
+                {isLoggedIn? (userEmail ? userEmail.charAt(0).toUpperCase() : userName.charAt(0).toUpperCase()) : 'G'}
+              </span>
+            )}
           </div>
           <div className="flex-1 min-w-0">
-            <p className={`${isDarkMode ? 'text-[#efefef]' : 'text-gray-700'} text-sm truncate`}>{userEmail}</p>
+            <p className={`${isDarkMode ? 'text-[#efefef]' : 'text-gray-700'} text-sm truncate`}>{userEmail? (userEmail):(userName)}</p>
           </div>
           <Settings size={16} className={`${isDarkMode ? 'text-[#efefef]' : 'text-gray-600'}`} />
         </div>
@@ -62,11 +77,25 @@ export function SettingsPage({ onBack, onLogout, isDarkMode, onToggleDarkMode, u
                     <p className={`font-medium ${isDarkMode ? 'text-[#efefef]' : 'text-gray-900'}`}>소셜 로그인</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Google</span>
-                    <Check size={16} className="text-blue-500" />
+                    {userProvider ? (
+                      <>
+                        <span className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{userProvider}</span>
+                        <Check size={16} className="text-blue-500" />
+                      </>
+                    ): 
+                      <Button
+                        onClick={() => {
+                        onLoginClick();
+                        }}
+                        className="bg-blue-500 hover:bg-blue-600 text-white"
+                      >
+                        로그인
+                      </Button>
+                    }
                   </div>
                 </div>
 
+                {(isLoggedIn) ?
                 <div className="flex items-center justify-between py-3">
                   <div>
                     <p className={`font-medium ${isDarkMode ? 'text-[#efefef]' : 'text-gray-900'}`}>로그아웃</p>
@@ -78,19 +107,20 @@ export function SettingsPage({ onBack, onLogout, isDarkMode, onToggleDarkMode, u
                   >
                     로그아웃
                   </Button>
-                </div>
 
-                <div className="flex items-center justify-between py-3">
-                  <div>
-                    <p className={`font-medium ${isDarkMode ? 'text-[#efefef]' : 'text-gray-900'}`}>탈퇴하기</p>
+                  <div className="flex items-center justify-between py-3">
+                    <div>
+                      <p className={`font-medium ${isDarkMode ? 'text-[#efefef]' : 'text-gray-900'}`}>탈퇴하기</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="text-sm text-destructive border-destructive hover:bg-destructive/10"
+                    >
+                      탈퇴
+                    </Button>
                   </div>
-                  <Button
-                    variant="outline"
-                    className="text-sm text-destructive border-destructive hover:bg-destructive/10"
-                  >
-                    탈퇴
-                  </Button>
                 </div>
+                : null}
               </div>
             </div>
 

@@ -20,9 +20,10 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>("main");
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userEmail, setUserEmail] = useState("junpio0812@gmail.com");
-  const [userName, setUserName] = useState("사용자");
+  const [userEmail, setUserEmail] = useState(null);
+  const [userName, setUserName] = useState("Guest");
   const [userPicture, setUserPicture] = useState<string | null>(null);
+  const [userProvider, setUserProvider] = useState<"Google" | "Kakao" | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
   // 로그인 상태 확인
@@ -43,6 +44,13 @@ export default function App() {
           setUserEmail(data.user.email);
           setUserName(data.user.name);
           setUserPicture(data.user.picture);
+          if (data.user.googleId) {
+            setUserProvider("Google");
+          } else if (data.user.kakaoId) {
+            setUserProvider("Kakao");
+          } else {
+            setUserProvider(null);
+          }
           setUserId(data.user.id);
           console.log('로그인 상태 확인됨:', data.user);
         } else {
@@ -92,8 +100,9 @@ export default function App() {
         console.log('로그아웃 성공');
         // 로컬 상태 업데이트
         setIsLoggedIn(false);
-        setUserEmail("junpio0812@gmail.com");
-        setUserName("사용자");
+        setUserEmail(null);
+        setUserName("Guest");
+        setUserProvider(null);
         setUserId(null);
         setCurrentPage("login");
       } else {
@@ -107,6 +116,7 @@ export default function App() {
       console.error('로그아웃 요청 실패:', error);
       // 에러가 발생해도 로컬 상태는 업데이트
       setIsLoggedIn(false);
+      setUserProvider(null);
       setUserId(null);
       setCurrentPage("login");
     }
@@ -159,10 +169,15 @@ export default function App() {
     return (
       <SettingsPage
         onBack={handleBackToMain}
+        onLoginClick={handleLoginClick}
         onLogout={handleLogout}
         isDarkMode={isDarkMode}
         onToggleDarkMode={handleToggleDarkMode}
+        isLoggedIn={isLoggedIn}
         userEmail={userEmail}
+        userName={userName}
+        userPicture={userPicture}
+        userProvider={userProvider}
       />
     );
   }
