@@ -870,7 +870,7 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     return doc.name.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
-  // 사이드바에서 검색된 문서들 (전체 문서에서 검색)
+  // 사이드바에서 검색된 문서들 (전체 문서에서 검색) 
   const searchResults = React.useMemo(() => {
     if (!searchQuery) return [];
     
