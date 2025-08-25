@@ -787,6 +787,7 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
 
       const formData = new FormData();
       formData.append('pdf', file);
+      
 
       // 업로드 시작 알림
       const uploadToast = toast.loading('PDF 업로드 중...');

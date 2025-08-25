@@ -3,7 +3,6 @@ const AWS = require('aws-sdk');
 const { ObjectId } = require('mongodb');
 const PdfDocument = require('../models/PdfDocument');
 
-// AWS S3 설정
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
   secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
@@ -29,7 +28,8 @@ const upload = multer({
   fileFilter: fileFilter,
   limits: {
     fileSize: 500 * 1024 * 1024 // 500MB
-  }
+  },
+  preservePath: true
 });
 
 class PdfController {
@@ -58,6 +58,16 @@ class PdfController {
 
         try {
           const file = req.file;
+          
+          // 한국어 파일명 디코딩 처리
+          let originalFileName = file.originalname;
+          try {
+            // UTF-8로 디코딩 시도
+            originalFileName = decodeURIComponent(escape(file.originalname));
+          } catch (decodeError) {
+            originalFileName = file.originalname;
+          }
+          
           // 사용자 ID 가져오기 (googleId 또는 kakaoId)
           const userId = req.user.googleId || req.user.kakaoId;
           
@@ -68,43 +78,61 @@ class PdfController {
           // S3에 업로드할 파일명 생성
           const fileName = `pdfs/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}.pdf`;
           
-          // S3 업로드 파라미터
-          const uploadParams = {
-            Bucket: BUCKET_NAME,
-            Key: fileName,
-            Body: file.buffer,
-            ContentType: file.mimetype,
-            Metadata: {
-              originalname: file.originalname,
-              userid: userId.toString()
-            }
-          };
-
-          // S3에 파일 업로드
-          const s3Result = await s3.upload(uploadParams).promise();
-          
-          // DB에 메타데이터 저장
+          // 1단계: DB에 메타데이터 먼저 저장 (상태: 업로드 중)
           const pdfData = {
             userId: userId,
-            fileName: file.originalname,  // 실제 파일명 저장
-            originalFileName: file.originalname,  // 원본 파일명은 별도 저장
+            fileName: originalFileName,  // 디코딩된 파일명 저장
+            originalFileName: originalFileName,  // 디코딩된 파일명 저장
             s3Key: fileName,
-            s3Url: s3Result.Location,
+            s3Url: '',  // 임시로 빈 값
             fileSize: file.size,
-            uploadDate: new Date()
+            uploadDate: new Date(),
+            status: 'uploading'  // 업로드 상태 추가
           };
 
-          const pdfId = await this.pdfDocument.create(pdfData);
+          let pdfId = null; // 변수 스코프를 위해 선언
+          pdfId = await this.pdfDocument.create(pdfData);
+
+                     // 2단계: S3 업로드 파라미터
+           const uploadParams = {
+             Bucket: BUCKET_NAME,
+             Key: fileName,
+             Body: file.buffer,
+             ContentType: file.mimetype,
+             Metadata: {
+               originalname: Buffer.from(originalFileName, 'utf8').toString('base64'), // Base64로 인코딩
+               userid: userId.toString()
+             }
+           };
+
+          // 3단계: S3에 파일 업로드
+          const s3Result = await s3.upload(uploadParams).promise();
+
+          // 4단계: DB 업데이트 (S3 URL 추가, 상태 완료)
+          await this.pdfDocument.updateById(pdfId, {
+            s3Url: s3Result.Location,
+            status: 'completed'
+          });
 
           res.status(201).json({
             success: true,
             pdfId: pdfId,
-            fileName: file.originalname,
+            fileName: originalFileName,
             s3Url: s3Result.Location
           });
 
         } catch (error) {
           console.error('PDF 업로드 에러:', error);
+          
+          // S3 업로드 실패 시 DB에서 해당 레코드 삭제
+          if (pdfId) {
+            try {
+              await this.pdfDocument.deleteById(pdfId);
+            } catch (deleteError) {
+              console.error('DB 레코드 삭제 실패:', deleteError);
+            }
+          }
+          
           res.status(500).json({ error: 'PDF 업로드에 실패했습니다.' });
         }
       });
@@ -150,36 +178,27 @@ class PdfController {
   // PDF 다운로드 (S3에서 직접 다운로드)
   async downloadPdf(req, res) {
     try {
-      console.log('PDF 다운로드 요청:', req.params);
-      
       if (!req.user) {
-        console.log('사용자 인증 실패');
         return res.status(401).json({ error: '로그인이 필요합니다.' });
       }
 
       const { pdfId } = req.params;
-      console.log('요청된 PDF ID:', pdfId);
 
       if (!ObjectId.isValid(pdfId)) {
-        console.log('유효하지 않은 PDF ID:', pdfId);
         return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
       }
 
       // DB에서 PDF 정보 조회
       const pdf = await this.pdfDocument.findById(pdfId);
-      console.log('DB에서 조회된 PDF:', pdf);
       
       if (!pdf) {
-        console.log('PDF를 찾을 수 없음');
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
       }
 
       // 권한 확인 (본인의 PDF만 다운로드 가능)
       const userId = req.user.googleId || req.user.kakaoId;
-      console.log('현재 사용자 ID:', userId, 'PDF 소유자 ID:', pdf.userId);
       
       if (pdf.userId !== userId) {
-        console.log('권한 없음');
         return res.status(403).json({ error: '다운로드 권한이 없습니다.' });
       }
 
@@ -188,15 +207,16 @@ class PdfController {
         Bucket: BUCKET_NAME,
         Key: pdf.s3Key
       };
-      
-      console.log('S3 다운로드 파라미터:', downloadParams);
 
       const s3Object = await s3.getObject(downloadParams).promise();
-      console.log('S3에서 파일 다운로드 성공, 파일 크기:', s3Object.Body.length);
       
-      // PDF 파일 응답
+      // PDF 파일 응답 (한국어 파일명 처리)
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename="${pdf.fileName}"`);
+      
+      // 한국어 파일명을 위한 UTF-8 인코딩 처리
+      const encodedFileName = encodeURIComponent(pdf.fileName);
+      res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodedFileName}`);
+      
       res.send(s3Object.Body);
 
     } catch (error) {
