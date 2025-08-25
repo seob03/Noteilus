@@ -1,38 +1,35 @@
+const express = require('express');
 const { PdfController } = require('../controllers/pdfController');
 
 function createPdfRoutes(db) {
+  const router = express.Router();
   const pdfController = new PdfController(db);
 
-  return function(req, res, next) {
-    const { method, url } = req;
+  /**
+   * @route POST /api/pdfs/upload
+   * @desc PDF 파일 업로드
+   */
+  router.post('/upload', (req, res) => pdfController.uploadPdf(req, res));
 
-    // PDF 업로드
-    if (method === 'POST' && url === '/api/pdfs/upload') {
-      return pdfController.uploadPdf(req, res);
-    }
+  /**
+   * @route GET /api/pdfs
+   * @desc 사용자의 PDF 목록 조회
+   */
+  router.get('/', (req, res) => pdfController.getUserPdfs(req, res));
 
-    // 사용자의 PDF 목록 조회
-    if (method === 'GET' && url === '/api/pdfs') {
-      return pdfController.getUserPdfs(req, res);
-    }
+  /**
+   * @route GET /api/pdfs/:pdfId/download
+   * @desc 특정 PDF 파일 다운로드
+   */
+  router.get('/:pdfId/download', (req, res) => pdfController.downloadPdf(req, res));
 
-    // PDF 다운로드
-    if (method === 'GET' && url.match(/^\/api\/pdfs\/[^\/]+\/download$/)) {
-      const pdfId = url.split('/')[3];
-      req.params = { pdfId };
-      return pdfController.downloadPdf(req, res);
-    }
+  /**
+   * @route DELETE /api/pdfs/:pdfId
+   * @desc 특정 PDF 파일 삭제
+   */
+  router.delete('/:pdfId', (req, res) => pdfController.deletePdf(req, res));
 
-    // PDF 삭제
-    if (method === 'DELETE' && url.match(/^\/api\/pdfs\/[^\/]+$/)) {
-      const pdfId = url.split('/')[3];
-      req.params = { pdfId };
-      return pdfController.deletePdf(req, res);
-    }
-
-    // 매칭되지 않는 요청은 다음 미들웨어로
-    next();
-  };
+  return router;
 }
 
 module.exports = { createPdfRoutes };

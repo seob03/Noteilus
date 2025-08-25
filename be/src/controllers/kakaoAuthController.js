@@ -7,13 +7,7 @@ class KakaoAuthController {
 
   // 카카오 로그인 성공 시 호출
   async kakaoLoginSuccess(profile) {
-    try {
-      console.log('카카오 프로필 정보:', profile);
-      console.log('카카오 프로필 ID:', profile.id);
-      console.log('카카오 프로필 이름:', profile.displayName);
-      console.log('카카오 계정 정보:', profile._json.kakao_account);
-      console.log('카카오 속성 정보:', profile._json.properties);
-      
+    try { 
       const userData = {
         kakaoId: profile.id,
         email: profile._json.kakao_account?.email || null,

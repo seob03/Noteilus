@@ -55,7 +55,7 @@ connectDB().then((db) => {
   // 카카오 인증 라우트 설정
   app.use('/auth', createKakaoAuthRoutes(db));
   // PDF 라우트 설정
-  app.use(createPdfRoutes(db));
+  app.use('/api/pdfs', createPdfRoutes(db));
 
   app.listen(process.env.PORT || 8080, () => {
     console.log('API 서버 실행 성공');
