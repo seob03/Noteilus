@@ -480,12 +480,12 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
           previewImage: undefined
         }));
 
-        // "추가" 버튼을 마지막에 유지
-        setDocuments([...pdfDocuments, {
+        // "추가" 버튼을 가장 앞에 고정
+        setDocuments([{
           id: 'add',
           name: '추가',
           type: 'pdf'
-        }]);
+        }, ...pdfDocuments]);
       } else {
         console.error('PDF 목록을 불러올 수 없습니다:', response.status);
       }

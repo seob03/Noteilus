@@ -40,6 +40,8 @@ export default function App() {
         if (response.ok) {
           const data = await response.json();
           console.log('로그인 상태 확인 성공:', data);
+          console.log('구글아이디: ',data.user.googleId);
+          console.log('카카오아이디: ',data.user.kakaoId);
           setIsLoggedIn(true);
           setUserEmail(data.user.email);
           setUserName(data.user.name);

@@ -68,14 +68,14 @@ class PdfController {
           // S3에 업로드할 파일명 생성
           const fileName = `pdfs/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}.pdf`;
           
-          // S3 업로드 파라미터 - 모든 파일명을 "test"로 설정
+          // S3 업로드 파라미터
           const uploadParams = {
             Bucket: BUCKET_NAME,
             Key: fileName,
             Body: file.buffer,
             ContentType: file.mimetype,
             Metadata: {
-              originalname: 'test.pdf',
+              originalname: file.originalname,
               userid: userId.toString()
             }
           };
@@ -86,7 +86,7 @@ class PdfController {
           // DB에 메타데이터 저장
           const pdfData = {
             userId: userId,
-            fileName: 'test.pdf',  // 모든 파일명을 "test"로 설정
+            fileName: file.originalname,  // 실제 파일명 저장
             originalFileName: file.originalname,  // 원본 파일명은 별도 저장
             s3Key: fileName,
             s3Url: s3Result.Location,
@@ -99,7 +99,7 @@ class PdfController {
           res.status(201).json({
             success: true,
             pdfId: pdfId,
-            fileName: 'test.pdf',
+            fileName: file.originalname,
             s3Url: s3Result.Location
           });
 
@@ -133,7 +133,7 @@ class PdfController {
       // 프론트엔드에서 필요한 형태로 변환
       const formattedPdfs = pdfs.map(pdf => ({
         id: pdf._id.toString(),
-        name: pdf.fileName,  // "test.pdf"로 표시
+        name: pdf.fileName,  // 실제 파일명 표시
         type: 'pdf',
         previewImage: undefined,
         uploadDate: pdf.uploadDate

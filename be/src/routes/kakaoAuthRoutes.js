@@ -32,12 +32,6 @@ function createKakaoAuthRoutes(db) {
   // 카카오 로그인 실패
   router.get('/failure', (req, res) => kakaoAuthController.loginFailure(req, res));
 
-  // 카카오 로그아웃
-  router.get('/logout', (req, res) => kakaoAuthController.logout(req, res));
-
-  // 현재 카카오 사용자 정보 조회
-  router.get('/me', (req, res) => kakaoAuthController.getCurrentUser(req, res));
-
   return router;
 }
 
