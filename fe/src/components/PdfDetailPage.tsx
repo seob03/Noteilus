@@ -66,7 +66,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   // 사이드바 상태 - 상호 배타적
   const [mapSidebarOpen, setMapSidebarOpen] = useState(false);
   const [aiSidebarOpen, setAiSidebarOpen] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(361);
+  const [sidebarWidth, setSidebarWidth] = useState(240);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -657,7 +657,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
         </div>
 
         {/* PDF 뷰어 및 캔버스 - 나머지 공간 전체 사용 */}
-        <div className="flex-1 flex items-center justify-center overflow-hidden" ref={pdfViewerRef}>
+        <div className="flex-1 flex flex-col items-center justify-center overflow-hidden" ref={pdfViewerRef}>
           {/* 로딩 상태 */}
           {isLoading && (
             <div className="text-center">
@@ -707,23 +707,18 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                   >
                     <Page
                       pageNumber={currentPage}
-                      width={Math.min(window.innerWidth * 0.8, 800)}
+                      width={Math.min(window.innerWidth * 0.5, 600)}
                       renderTextLayer={false}
                       renderAnnotationLayer={false}
                     />
                   </Document>
                   
-                  {/* 페이지 정보 */}
-                  <div className="text-center mt-4">
-                    <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm`}>
-                      페이지 {currentPage} / {numPages}
-                    </span>
-                    <div className="mt-1">
-                      <span className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs`}>
-                        마우스 휠로 페이지를 이동할 수 있습니다
-                      </span>
-                    </div>
-                  </div>
+          {/* 페이지 정보 - PDF 아래에 위치 */}
+          <div className="text-center mt-4">
+            <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm`}>
+              페이지 {currentPage} / {numPages}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -734,7 +729,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
         }`}
         style={mapSidebarOpen ? { width: `${sidebarWidth}px` } : {}}
       >
-        <div className="p-4 h-full flex flex-col">
+        <div className="p-4 h-full flex flex-col" style={{ minWidth: '240px', maxWidth: '500px' }}>
           {/* 상단 컨트롤 */}
           <div className="flex items-center justify-between mb-4 flex-shrink-0">
             <div className="flex-1" />
@@ -785,7 +780,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
           </div>
 
                      {/* PDF 페이지 미리보기 - 스크롤 가능 */}
-           <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+           <div className="flex-1 overflow-y-auto space-y-4 pr-2 flex flex-col items-center">
              {Array.from(new Array(numPages), (el, index) => (
                <div key={`page_${index + 1}`} className="relative">
                  <div
@@ -794,14 +789,16 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                    }`}
                    onClick={() => setCurrentPage(index + 1)}
                  >
-                                                           <Document file={pdfUrl}>
-                      <Page
-                        pageNumber={index + 1}
-                        width={200}
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
-                      />
-                    </Document>
+                   <div className="w-full max-w-[200px] mx-auto">
+                     <Document file={pdfUrl}>
+                       <Page
+                         pageNumber={index + 1}
+                         width={200}
+                         renderTextLayer={false}
+                         renderAnnotationLayer={false}
+                       />
+                     </Document>
+                   </div>
                  </div>
                  <div className="absolute bottom-2 left-2 bg-black bg-opacity-70 text-white text-xs px-2 py-1 rounded">
                    {index + 1}

@@ -32,12 +32,6 @@ function createGoogleAuthRoutes(db) {
   // 구글 로그인 실패
   router.get('/failure', (req, res) => googleAuthController.loginFailure(req, res));
 
-  // 구글 로그아웃
-  router.get('/logout', (req, res) => googleAuthController.logout(req, res));
-
-  // 현재 구글 사용자 정보 조회
-  router.get('/me', (req, res) => googleAuthController.getCurrentUser(req, res));
-
   return router;
 }
 

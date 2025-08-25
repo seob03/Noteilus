@@ -96,18 +96,20 @@ export function SettingsPage({ onBack, onLoginClick, onLogout, isDarkMode, onTog
                 </div>
 
                 {(isLoggedIn) ?
-                <div className="flex items-center justify-between py-3">
-                  <div>
-                    <p className={`font-medium ${isDarkMode ? 'text-[#efefef]' : 'text-gray-900'}`}>로그아웃</p>
+                <>
+                  <div className="flex items-center justify-between py-3">
+                    <div>
+                      <p className={`font-medium ${isDarkMode ? 'text-[#efefef]' : 'text-gray-900'}`}>로그아웃</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={onLogout}
+                      className={`text-sm ${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                    >
+                      로그아웃
+                    </Button>
                   </div>
-                  <Button
-                    variant="outline"
-                    onClick={onLogout}
-                    className={`text-sm ${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-                  >
-                    로그아웃
-                  </Button>
-
+                  
                   <div className="flex items-center justify-between py-3">
                     <div>
                       <p className={`font-medium ${isDarkMode ? 'text-[#efefef]' : 'text-gray-900'}`}>탈퇴하기</p>
@@ -119,7 +121,7 @@ export function SettingsPage({ onBack, onLoginClick, onLogout, isDarkMode, onTog
                       탈퇴
                     </Button>
                   </div>
-                </div>
+                </>
                 : null}
               </div>
             </div>

@@ -13,6 +13,7 @@ const cors = require('cors');
 const configurePassport = require('./src/config/passport');
 const createGoogleAuthRoutes = require('./src/routes/googleAuthRoutes');
 const createKakaoAuthRoutes = require('./src/routes/kakaoAuthRoutes');
+const createCommonAuthRoutes = require('./src/routes/commonAuthRoutes');
 
 // PDF 라우트
 const { createPdfRoutes } = require('./src/routes/pdfRoutes');
@@ -50,6 +51,8 @@ connectDB().then((db) => {
 
   // Passport 설정
   configurePassport(db);
+  // 공통 인증 라우트 설정 (먼저 등록하여 우선순위 확보)
+  app.use('/auth', createCommonAuthRoutes());
   // 구글 인증 라우트 설정
   app.use('/auth', createGoogleAuthRoutes(db));
   // 카카오 인증 라우트 설정
