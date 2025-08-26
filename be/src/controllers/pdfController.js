@@ -77,6 +77,69 @@ class PdfController {
           
           // S3에 업로드할 파일명 생성
           const fileName = `pdfs/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}.pdf`;
+
+          // 여기에 mistral API로 OCR 작업한 뒤, 해당 결과를 아래 DB 저장할 때 같이 저장, 필드명은 ocrText로 저장해줘줘
+          let ocrText = '';
+          try {
+            const mistralApiKey = process.env.MISTRAL_API_KEY;
+            if (mistralApiKey) {
+              console.log('Mistral API 키 확인됨, OCR 처리 시작...');
+              
+              // PDF를 base64로 인코딩
+              const base64Pdf = file.buffer.toString('base64');
+              console.log('PDF base64 인코딩 완료, 크기:', base64Pdf.length);
+              
+              // Mistral AI OCR API 호출
+              const response = await fetch('https://api.mistral.ai/v1/ocr', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${mistralApiKey}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  model: "mistral-ocr-latest",
+                  document: {
+                    type: "document_url",
+                    document_url: `data:application/pdf;base64,${base64Pdf}`
+                  },
+                  include_image_base64: true
+                })
+              });
+
+              console.log('Mistral API 응답 상태:', response.status, response.statusText);
+              console.log('Mistral API 응답 헤더:', Object.fromEntries(response.headers.entries()));
+
+              if (response.ok) {
+                const result = await response.json();
+                // OCR 결과에서 모든 페이지의 markdown 텍스트를 추출
+                if (result.pages && result.pages.length > 0) {
+                  ocrText = result.pages.map(page => page.markdown || '').join('\n\n');
+                }
+                console.log('OCR 처리 완료:', originalFileName);
+                console.log('OCR 결과 길이:', ocrText.length);
+              } else {
+                const errorText = await response.text();
+                console.error('OCR 처리 실패 - 상태:', response.status);
+                console.error('OCR 처리 실패 - 응답:', errorText);
+                
+                // JSON 파싱 시도
+                try {
+                  const errorJson = JSON.parse(errorText);
+                  console.error('OCR 처리 실패 - JSON:', errorJson);
+                } catch (parseError) {
+                  console.error('OCR 처리 실패 - 텍스트 응답:', errorText);
+                }
+              }
+            } else {
+              console.log('Mistral API 키가 설정되지 않음, OCR 처리 건너뜀');
+            }
+          } catch (ocrError) {
+            console.error('OCR 처리 중 오류:', ocrError);
+            console.error('OCR 오류 상세:', ocrError.message);
+            console.error('OCR 오류 스택:', ocrError.stack);
+            // OCR 실패해도 PDF 업로드는 계속 진행
+          }
+
           
           // 1단계: DB에 메타데이터 먼저 저장 (상태: 업로드 중)
           const pdfData = {
@@ -87,23 +150,24 @@ class PdfController {
             s3Url: '',  // 임시로 빈 값
             fileSize: file.size,
             uploadDate: new Date(),
-            status: 'uploading'  // 업로드 상태 추가
+            status: 'uploading',  // 업로드 상태 추가
+            ocrText: ocrText  // OCR 결과 저장
           };
 
           let pdfId = null; // 변수 스코프를 위해 선언
           pdfId = await this.pdfDocument.create(pdfData);
 
-                     // 2단계: S3 업로드 파라미터
-           const uploadParams = {
-             Bucket: BUCKET_NAME,
-             Key: fileName,
-             Body: file.buffer,
-             ContentType: file.mimetype,
-             Metadata: {
-               originalname: Buffer.from(originalFileName, 'utf8').toString('base64'), // Base64로 인코딩
-               userid: userId.toString()
-             }
-           };
+            // 2단계: S3 업로드 파라미터
+            const uploadParams = {
+              Bucket: BUCKET_NAME,
+              Key: fileName,
+              Body: file.buffer,
+              ContentType: file.mimetype,
+              Metadata: {
+                originalname: Buffer.from(originalFileName, 'utf8').toString('base64'), // Base64로 인코딩
+                userid: userId.toString()
+              }
+            };
 
           // 3단계: S3에 파일 업로드
           const s3Result = await s3.upload(uploadParams).promise();
