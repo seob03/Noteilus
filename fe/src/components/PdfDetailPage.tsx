@@ -102,9 +102,27 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [currentColor, setCurrentColor] = useState('#000000');
   const [currentSize, setCurrentSize] = useState(2);
   
-  // 실행취소/다시실행 상태
-  const [undoStack, setUndoStack] = useState<DrawingStroke[][]>([]);
-  const [redoStack, setRedoStack] = useState<DrawingStroke[][]>([]);
+  // 실행취소/다시실행 상태 - 페이지별로 관리
+  const [undoStacks, setUndoStacks] = useState<{ [pageNumber: number]: DrawingStroke[][] }>({});
+  const [redoStacks, setRedoStacks] = useState<{ [pageNumber: number]: DrawingStroke[][] }>({});
+  
+  // 현재 페이지의 undo/redo 스택을 쉽게 접근하기 위한 헬퍼 함수들
+  const getCurrentUndoStack = () => undoStacks[currentPage] || [];
+  const getCurrentRedoStack = () => redoStacks[currentPage] || [];
+  
+  const setCurrentUndoStack = (newStack: DrawingStroke[][]) => {
+    setUndoStacks(prev => ({
+      ...prev,
+      [currentPage]: newStack
+    }));
+  };
+  
+  const setCurrentRedoStack = (newStack: DrawingStroke[][]) => {
+    setRedoStacks(prev => ({
+      ...prev,
+      [currentPage]: newStack
+    }));
+  };
   
     // PDF 다운로드 및 로드
   const loadPdf = async () => {
@@ -285,8 +303,8 @@ Solves the problem where Gradient Descent shows different speeds depending on we
   
   // 이제 undoStack은 handleMouseUp에서 직접 관리하므로 이 useEffect는 단순화
   useEffect(() => {
-    console.log('🔄 strokes 상태 업데이트 - 현재 개수:', strokes.length, 'undoStack.length:', undoStack.length);
-  }, [strokes, undoStack.length]);
+    console.log('🔄 strokes 상태 업데이트 - 현재 개수:', strokes.length, 'undoStack.length:', getCurrentUndoStack().length);
+  }, [strokes, undoStacks, currentPage]);
 
   // 페이지 변경 시 캔버스 다시 그리기
   useEffect(() => {
@@ -414,15 +432,10 @@ Solves the problem where Gradient Descent shows different speeds depending on we
         
         // 실제로 지워진 것이 있을 때만 undoStack에 저장
         if (erasedStrokes.length < strokes.length) {
-          console.log('📚 지우개 - undoStack에 현재 상태 저장 - undoStack.length:', undoStack.length);
-          setUndoStack(prev => {
-            const newUndoStack = [...prev, [...strokes]];
-            console.log('✅ 지우개 undoStack 업데이트 완료 - 새 크기:', newUndoStack.length);
-            console.log('💾 저장된 strokes 개수:', strokes.length);
-            return newUndoStack;
-          });
+          console.log('📚 지우개 - undoStack에 현재 상태 저장 - undoStack.length:', getCurrentUndoStack().length);
+          setCurrentUndoStack([...getCurrentUndoStack(), [...strokes]]);
           // redo 스택 초기화
-          setRedoStack([]);
+          setCurrentRedoStack([]);
         } else {
           console.log('⚠️ 아무것도 지워지지 않아서 undoStack 저장 안함');
         }
@@ -435,16 +448,11 @@ Solves the problem where Gradient Descent shows different speeds depending on we
         console.log('🎨 새로운 stroke 추가 시작 - 현재 strokes:', strokes.length, '개');
         
         // 항상 현재 상태를 undoStack에 저장 (첫 번째 stroke도 포함)
-        console.log('📚 undoStack에 현재 상태 저장 - undoStack.length:', undoStack.length);
-        setUndoStack(prev => {
-          const newUndoStack = [...prev, [...strokes]];
-          console.log('✅ undoStack 업데이트 완료 - 새 크기:', newUndoStack.length);
-          console.log('💾 저장된 strokes 개수:', strokes.length, '(빈 상태도 저장 가능)');
-          return newUndoStack;
-        });
+        console.log('📚 undoStack에 현재 상태 저장 - undoStack.length:', getCurrentUndoStack().length);
+        setCurrentUndoStack([...getCurrentUndoStack(), [...strokes]]);
         
         // redo 스택 초기화 (새로운 액션 시)
-        setRedoStack([]);
+        setCurrentRedoStack([]);
         
         const newStroke: DrawingStroke = {
           points: [...currentPath],
@@ -684,12 +692,12 @@ Solves the problem where Gradient Descent shows different speeds depending on we
 
   // 실행취소 함수
   const handleUndo = useCallback(() => {
-    console.log('실행취소 시도 - undo 스택:', undoStack.length, '개 항목');
-    if (undoStack.length > 0) {
-      const targetStrokes = undoStack[undoStack.length - 1];
-      const newUndoStack = undoStack.slice(0, -1);
+    console.log('실행취소 시도 - undo 스택:', getCurrentUndoStack().length, '개 항목');
+    if (getCurrentUndoStack().length > 0) {
+      const targetStrokes = getCurrentUndoStack()[getCurrentUndoStack().length - 1];
+      const newUndoStack = getCurrentUndoStack().slice(0, -1);
       // redoStack에는 실행취소 전의 현재 상태를 저장
-      const newRedoStack = [...redoStack, strokes];
+      const newRedoStack = [...getCurrentRedoStack(), strokes];
       
       console.log('실행취소 실행 - 복원할 strokes:', targetStrokes.length, '개');
       
@@ -698,8 +706,8 @@ Solves the problem where Gradient Descent shows different speeds depending on we
       
       // 상태 업데이트
       setStrokes(targetStrokes);
-      setUndoStack(newUndoStack);
-      setRedoStack(newRedoStack);
+      setCurrentUndoStack(newUndoStack);
+      setCurrentRedoStack(newRedoStack);
       setPreviousStrokes(targetStrokes);
       previousStrokesRef.current = [...targetStrokes];
       saveDrawingData(currentPage, targetStrokes);
@@ -708,29 +716,29 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     } else {
       console.log('실행취소 실패 - undo 스택이 비어있음');
     }
-  }, [undoStack, redoStack, strokes, currentPage, saveDrawingData]);
+  }, [undoStacks, redoStacks, strokes, currentPage, saveDrawingData]);
 
   // 다시실행 함수
   const handleRedo = useCallback(() => {
-    if (redoStack.length > 0) {
-      const targetStrokes = redoStack[redoStack.length - 1];
-      const newRedoStack = redoStack.slice(0, -1);
-      const newUndoStack = [...undoStack, strokes];
+    if (getCurrentRedoStack().length > 0) {
+      const targetStrokes = getCurrentRedoStack()[getCurrentRedoStack().length - 1];
+      const newRedoStack = getCurrentRedoStack().slice(0, -1);
+      const newUndoStack = [...getCurrentUndoStack(), strokes];
       
       // 플래그 설정하여 useEffect 실행 방지
       isUndoRedoActionRef.current = true;
       
       // 상태 업데이트
       setStrokes(targetStrokes);
-      setRedoStack(newRedoStack);
-      setUndoStack(newUndoStack);
+      setCurrentRedoStack(newRedoStack);
+      setCurrentUndoStack(newUndoStack);
       setPreviousStrokes(targetStrokes);
       previousStrokesRef.current = [...targetStrokes];
       saveDrawingData(currentPage, targetStrokes);
       
       toast.success('다시 실행되었습니다.');
     }
-  }, [redoStack, undoStack, strokes, currentPage, saveDrawingData]);
+  }, [undoStacks, redoStacks, strokes, currentPage, saveDrawingData]);
 
   // 실행취소/다시실행 키보드 이벤트
   useEffect(() => {
@@ -874,37 +882,37 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                                              {/* 실행취소/다시실행 */}
                 <div className="flex items-center gap-1">
                   <Button
-                    variant={undoStack.length > 0 ? "default" : "ghost"}
+                    variant={getCurrentUndoStack().length > 0 ? "default" : "ghost"}
                     size="sm"
                     onClick={() => {
-                      console.log('실행취소 버튼 클릭 - undoStack:', undoStack.length, '개');
-                      console.log('undoStack 내용:', undoStack);
+                      console.log('실행취소 버튼 클릭 - undoStack:', getCurrentUndoStack().length, '개');
+                      console.log('undoStack 내용:', getCurrentUndoStack());
                       handleUndo();
                     }}
-                    disabled={undoStack.length === 0}
+                    disabled={getCurrentUndoStack().length === 0}
                     className={`flex flex-col items-center gap-1 h-auto py-2 px-2 ${
-                      undoStack.length > 0 
+                      getCurrentUndoStack().length > 0 
                         ? 'bg-blue-500 text-white hover:bg-blue-600 shadow-md' 
                         : 'text-gray-600 hover:text-gray-800 disabled:opacity-50'
                     }`}
-                    title={`실행취소 가능: ${undoStack.length}개 단계`}
+                    title={`실행취소 가능: ${getCurrentUndoStack().length}개 단계`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                     </svg>
-                    <span className="text-xs">실행취소({undoStack.length})</span>
+                    <span className="text-xs">실행취소({getCurrentUndoStack().length})</span>
                   </Button>
                   <Button
-                    variant={redoStack.length > 0 ? "default" : "ghost"}
+                    variant={getCurrentRedoStack().length > 0 ? "default" : "ghost"}
                     size="sm"
                     onClick={handleRedo}
-                    disabled={redoStack.length === 0}
+                    disabled={getCurrentRedoStack().length === 0}
                     className={`flex flex-col items-center gap-1 h-auto py-2 px-2 ${
-                      redoStack.length > 0 
+                      getCurrentRedoStack().length > 0 
                         ? 'bg-green-500 text-white hover:bg-green-600 shadow-md' 
                         : 'text-gray-600 hover:text-gray-800 disabled:opacity-50'
                     }`}
-                    title={`다시실행 가능: ${redoStack.length}개 단계`}
+                    title={`다시실행 가능: ${getCurrentRedoStack().length}개 단계`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" />
