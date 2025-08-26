@@ -160,9 +160,10 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     }
   };
 
-  // 컴포넌트 마운트 시 PDF 로드
+  // 컴포넌트 마운트 시 PDF 로드 및 필기 데이터 로드
   useEffect(() => {
     loadPdf();
+    loadDrawingDataFromServer();
   }, [pdfId]);
   
   // 채팅 자동 스크롤을 위한 ref
@@ -270,6 +271,78 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     setDrawingData(newData);
   }, []);
 
+  // strokes 상태 변경 시 자동으로 서버에 저장
+  useEffect(() => {
+    if (strokes.length > 0 || drawingDataRef.current[currentPage]) {
+      // 디바운싱을 위해 약간의 지연 후 저장
+      const timeoutId = setTimeout(() => {
+        saveDrawingDataToServer(currentPage, strokes);
+      }, 500); // 500ms 지연
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [strokes, currentPage]);
+
+  // 서버에 필기 데이터 저장
+  const saveDrawingDataToServer = async (pageId: number, data: DrawingStroke[]) => {
+    try {
+      const response = await fetch(`/api/pdfs/${pdfId}/drawing`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          pageNumber: pageId,
+          drawingData: data
+        })
+      });
+
+      if (!response.ok) {
+        console.error('필기 데이터 저장 실패:', response.status);
+        return;
+      }
+
+      console.log(`페이지 ${pageId} 필기 데이터 서버 저장 완료`);
+    } catch (error) {
+      console.error('필기 데이터 저장 에러:', error);
+    }
+  };
+
+  // 서버에서 필기 데이터 로드
+  const loadDrawingDataFromServer = async () => {
+    try {
+      const response = await fetch(`/api/pdfs/${pdfId}/drawing`, {
+        method: 'GET',
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        console.error('필기 데이터 로드 실패:', response.status);
+        return;
+      }
+
+      const result = await response.json();
+      if (result.success && result.drawingData) {
+        console.log('서버에서 필기 데이터 로드 완료:', result.drawingData);
+        
+        // 서버 데이터를 로컬 상태에 반영
+        const serverData = result.drawingData;
+        drawingDataRef.current = serverData;
+        setDrawingData(serverData);
+        
+        // 현재 페이지의 데이터가 있으면 로드
+        if (serverData[currentPage]) {
+          setStrokes(serverData[currentPage]);
+          setPreviousStrokes(serverData[currentPage]);
+          previousStrokesRef.current = [...serverData[currentPage]];
+        }
+      }
+    } catch (error) {
+      console.error('필기 데이터 로드 에러:', error);
+    }
+  };
+
   // 페이지 변경 시 캔버스 필기 데이터 로드
   useEffect(() => {
     console.log('📄 페이지 변경 감지 - 페이지:', currentPage);
@@ -294,6 +367,11 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     // setRedoStack([]);
     setIsInitialLoad(true); // 페이지 변경 시 초기 로드 플래그 리셋
   }, [currentPage]);
+
+  // test useEffect(() => {
+  //   // 서버 데이터 받아오면 페이지 재 랜더링
+  //     renderCanvas();
+  // }, [drawingData]);
 
   // strokes 변경 시 undo 스택에 저장 (단, 초기 로드 시에는 제외)
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -368,7 +446,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     } else {
       renderCanvas();
     }
-  }, [strokes, isDarkMode, currentPage]); // currentPage 의존성 추가
+  }, [strokes, isDarkMode, currentPage, numPages]); // currentPage 의존성 추가
 
   // 스크롤로 페이지 변경
   useEffect(() => {
@@ -472,7 +550,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
         };
         
         const newStrokes = [...strokes, newStroke];
-        console.log('🎯 새로운 stroke 추가 완료 - 이전:', strokes.length, '개 → 새로:', newStrokes.length, '개');
+        console.log('�� 새로운 stroke 추가 완료 - 이전:', strokes.length, '개 → 새로:', newStrokes.length, '개');
         setStrokes(newStrokes);
         saveDrawingData(currentPage, newStrokes);
       }
@@ -572,7 +650,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     setStrokes([]);
     setCurrentPath([]);
     setIsDrawing(false);
-    saveDrawingData(currentPage, []);
+    saveDrawingData(currentPage, []); // 로컬 상태 업데이트 (자동 저장됨)
     
     const canvas = excalidrawRef.current;
     if (canvas) {
@@ -715,14 +793,14 @@ Solves the problem where Gradient Descent shows different speeds depending on we
       isUndoRedoActionRef.current = true;
       
       // 상태 업데이트
-      setStrokes(targetStrokes);
-      setCurrentUndoStack(newUndoStack);
-      setCurrentRedoStack(newRedoStack);
-      setPreviousStrokes(targetStrokes);
-      previousStrokesRef.current = [...targetStrokes];
-      saveDrawingData(currentPage, targetStrokes);
-      
-      toast.success('실행 취소되었습니다.');
+             setStrokes(targetStrokes);
+       setCurrentUndoStack(newUndoStack);
+       setCurrentRedoStack(newRedoStack);
+       setPreviousStrokes(targetStrokes);
+       previousStrokesRef.current = [...targetStrokes];
+       saveDrawingData(currentPage, targetStrokes); // 로컬 상태 업데이트 (자동 저장됨)
+       
+       toast.success('실행 취소되었습니다.');
     } else {
       console.log('실행취소 실패 - undo 스택이 비어있음');
     }
@@ -739,14 +817,14 @@ Solves the problem where Gradient Descent shows different speeds depending on we
       isUndoRedoActionRef.current = true;
       
       // 상태 업데이트
-      setStrokes(targetStrokes);
-      setCurrentRedoStack(newRedoStack);
-      setCurrentUndoStack(newUndoStack);
-      setPreviousStrokes(targetStrokes);
-      previousStrokesRef.current = [...targetStrokes];
-      saveDrawingData(currentPage, targetStrokes);
-      
-      toast.success('다시 실행되었습니다.');
+             setStrokes(targetStrokes);
+       setCurrentRedoStack(newRedoStack);
+       setCurrentUndoStack(newUndoStack);
+       setPreviousStrokes(targetStrokes);
+       previousStrokesRef.current = [...targetStrokes];
+       saveDrawingData(currentPage, targetStrokes); // 로컬 상태 업데이트 (자동 저장됨)
+       
+       toast.success('다시 실행되었습니다.');
     }
   }, [undoStacks, redoStacks, strokes, currentPage, saveDrawingData]);
 

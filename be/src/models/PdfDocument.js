@@ -29,6 +29,35 @@ class PdfDocument {
     );
     return result;
   }
+
+  // 필기 데이터 저장
+  async saveDrawingData(pdfId, drawingData) {
+    const result = await this.collection.updateOne(
+      { _id: ObjectId.createFromHexString(pdfId.toString()) },
+      { $set: { drawingData: drawingData, lastModified: new Date() } }
+    );
+    return result;
+  }
+
+  // 필기 데이터 조회
+  async getDrawingData(pdfId) {
+    const pdf = await this.findById(pdfId);
+    return pdf ? pdf.drawingData || {} : {};
+  }
+
+  // 특정 페이지의 필기 데이터 저장
+  async savePageDrawingData(pdfId, pageNumber, pageDrawingData) {
+    const result = await this.collection.updateOne(
+      { _id: ObjectId.createFromHexString(pdfId.toString()) },
+      { 
+        $set: { 
+          [`drawingData.${pageNumber}`]: pageDrawingData,
+          lastModified: new Date()
+        } 
+      }
+    );
+    return result;
+  }
 }
 
 module.exports = PdfDocument;

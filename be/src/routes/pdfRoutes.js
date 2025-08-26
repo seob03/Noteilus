@@ -29,6 +29,18 @@ function createPdfRoutes(db) {
    */
   router.delete('/:pdfId', (req, res) => pdfController.deletePdf(req, res));
 
+  /**
+   * @route POST /api/pdfs/:pdfId/drawing
+   * @desc 특정 페이지의 필기 데이터 저장
+   */
+  router.post('/:pdfId/drawing', (req, res) => pdfController.saveDrawingData(req, res));
+
+  /**
+   * @route GET /api/pdfs/:pdfId/drawing
+   * @desc PDF의 모든 필기 데이터 조회
+   */
+  router.get('/:pdfId/drawing', (req, res) => pdfController.getDrawingData(req, res));
+
   return router;
 }
 
