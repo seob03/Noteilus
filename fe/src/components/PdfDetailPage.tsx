@@ -19,22 +19,17 @@ interface PdfDetailPageProps {
   isDarkMode: boolean;
 }
 
-type Tool = 'pen' | 'highlighter' | 'eraser';
-
-interface DrawingPoint {
+// 캔버스 필기 상태 관리
+interface DrawingPath {
   x: number;
   y: number;
-  tool: Tool;
-  color: string;
-  size: number;
 }
 
-interface DrawingPath {
-  points: DrawingPoint[];
-  tool: Tool;
+interface DrawingStroke {
+  points: DrawingPath[];
   color: string;
   size: number;
-  pageId: number;
+  tool: 'pen' | 'highlighter' | 'eraser' | 'rectangle' | 'circle' | 'line';
 }
 
 const COLORS = ['#000000', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff'];
@@ -89,17 +84,27 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [quizType, setQuizType] = useState<'ox' | 'multiple4' | 'multiple5' | 'fillblank'>('multiple5');
   const [quizCount, setQuizCount] = useState(5);
   
-  // 필기 도구 상태
-  const [currentTool, setCurrentTool] = useState<Tool>('pen');
-  const [currentColor, setCurrentColor] = useState('#000000');
-  const [currentSize, setCurrentSize] = useState(2);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [paths, setPaths] = useState<DrawingPath[]>([]);
-  const [currentPath, setCurrentPath] = useState<DrawingPoint[]>([]);
+  // 캔버스 필기 상태
+  const [drawingData, setDrawingData] = useState<{ [key: number]: DrawingStroke[] }>({});
 
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfViewerRef = useRef<HTMLDivElement>(null);
-  const canvasRefs = useRef<{ [key: number]: HTMLCanvasElement }>({});
+  const excalidrawRef = useRef<HTMLCanvasElement>(null);
+  
+  // 캔버스 필기 상태
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [currentPath, setCurrentPath] = useState<DrawingPath[]>([]);
+  const [strokes, setStrokes] = useState<DrawingStroke[]>([]);
+  
+  // 필기 도구 상태
+  const [currentTool, setCurrentTool] = useState<'pen' | 'highlighter' | 'eraser' | 'rectangle' | 'circle' | 'line'>('pen');
+  const [currentColor, setCurrentColor] = useState('#000000');
+  const [currentSize, setCurrentSize] = useState(2);
+  
+  // 실행취소/다시실행 상태
+  const [undoStack, setUndoStack] = useState<DrawingStroke[][]>([]);
+  const [redoStack, setRedoStack] = useState<DrawingStroke[][]>([]);
+  const [isUndoRedoAction, setIsUndoRedoAction] = useState(false);
   
     // PDF 다운로드 및 로드
   const loadPdf = async () => {
@@ -237,145 +242,122 @@ Solves the problem where Gradient Descent shows different speeds depending on we
 
 
 
-  // 캔버스 다시 그리기
-  const redrawCanvas = useCallback((pageId: number) => {
-    const canvas = canvasRefs.current[pageId];
-    if (!canvas) return;
+  // 캔버스 필기 데이터 관리
+  const saveDrawingData = useCallback((pageId: number, data: DrawingStroke[]) => {
+    setDrawingData(prev => ({
+      ...prev,
+      [pageId]: data
+    }));
+  }, []);
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // 해당 페이지의 저장된 경로들 그리기
-    const pagePaths = paths.filter(path => path.pageId === pageId);
-    pagePaths.forEach(path => {
-      if (path.points.length < 2) return;
-
-      ctx.beginPath();
-      ctx.moveTo(path.points[0].x, path.points[0].y);
-
-      for (let i = 1; i < path.points.length; i++) {
-        ctx.lineTo(path.points[i].x, path.points[i].y);
-      }
-
-      ctx.strokeStyle = path.color;
-      ctx.lineWidth = path.size;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      if (path.tool === 'highlighter') {
-        ctx.globalAlpha = 0.3;
-      } else {
-        ctx.globalAlpha = 1;
-      }
-
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    });
-
-    // 현재 그리고 있는 경로 그리기
-    if (currentPath.length > 1 && currentPath[0] && currentPath[0].x !== undefined) {
-      ctx.beginPath();
-      ctx.moveTo(currentPath[0].x, currentPath[0].y);
-
-      for (let i = 1; i < currentPath.length; i++) {
-        ctx.lineTo(currentPath[i].x, currentPath[i].y);
-      }
-
-      ctx.strokeStyle = currentColor;
-      ctx.lineWidth = currentSize;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      if (currentTool === 'highlighter') {
-        ctx.globalAlpha = 0.3;
-      } else {
-        ctx.globalAlpha = 1;
-      }
-
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-  }, [paths, currentPath, currentColor, currentSize, currentTool]);
-
-  // 캔버스 다시 그리기 트리거
+  // 페이지 변경 시 캔버스 필기 데이터 로드
   useEffect(() => {
-    redrawCanvas(currentPage);
-  }, [redrawCanvas, currentPage]);
-
-  // 마우스 이벤트 핸들러
-  const getMousePos = (e: React.MouseEvent<HTMLCanvasElement>, canvas: HTMLCanvasElement) => {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top
-    };
-  };
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>, pageId: number) => {
-    const canvas = canvasRefs.current[pageId];
-    if (!canvas) return;
-
-    const pos = getMousePos(e, canvas);
-    setIsDrawing(true);
-    
-    if (currentTool === 'eraser') {
-      // 지우개 모드: 드래그 경로를 저장하기 시작
-      setCurrentPath([{ ...pos, tool: currentTool, color: currentColor, size: currentSize }]);
+    const savedData = drawingData[currentPage];
+    if (savedData) {
+      setStrokes(savedData);
     } else {
-      setCurrentPath([{ ...pos, tool: currentTool, color: currentColor, size: currentSize }]);
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>, pageId: number) => {
-    const canvas = canvasRefs.current[pageId];
-    if (!canvas || !isDrawing) return;
-
-    const pos = getMousePos(e, canvas);
-
-    if (currentTool === 'eraser') {
-      // 지우개 드래그 중: 경로를 따라 지우기
-      setCurrentPath(prev => [...prev, { ...pos, tool: currentTool, color: currentColor, size: currentSize }]);
-      eraseAlongPath(pos.x, pos.y, pageId);
-    } else {
-      setCurrentPath(prev => [...prev, { ...pos, tool: currentTool, color: currentColor, size: currentSize }]);
-    }
-  };
-
-  const handleMouseUp = (pageId: number) => {
-    if (!isDrawing) return;
-    
-    setIsDrawing(false);
-    
-    if (currentTool !== 'eraser' && currentPath.length > 1) {
-      setPaths(prev => [...prev, {
-        points: currentPath,
-        tool: currentTool,
-        color: currentColor,
-        size: currentSize,
-        pageId: pageId
-      }]);
+      setStrokes([]);
     }
     setCurrentPath([]);
-  };
-
-  // 지우개 기능 - 드래그 경로를 따라 지우기
-  const eraseAlongPath = (x: number, y: number, pageId: number) => {
-    const eraseRadius = 15; // 지우개 반경
+    setIsDrawing(false);
     
-    setPaths(prev => prev.filter(path => {
-      if (path.pageId !== pageId) return true;
+    // 페이지 변경 시 undo/redo 스택 초기화
+    setUndoStack([]);
+    setRedoStack([]);
+  }, [currentPage, drawingData]);
+
+  // strokes 변경 시 undo 스택에 저장 (단, 초기 로드 시에는 제외)
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [previousStrokes, setPreviousStrokes] = useState<DrawingStroke[]>([]);
+  
+  useEffect(() => {
+    if (!isInitialLoad && !isUndoRedoAction) {
+      // strokes가 실제로 변경되었는지 확인
+      const hasChanged = strokes.length !== previousStrokes.length || 
+        strokes.some((stroke, index) => {
+          const prevStroke = previousStrokes[index];
+          if (!prevStroke) return true;
+          
+          // 스트로크의 속성들을 비교
+          return stroke.color !== prevStroke.color ||
+                 stroke.size !== prevStroke.size ||
+                 stroke.tool !== prevStroke.tool ||
+                 stroke.points.length !== prevStroke.points.length ||
+                 stroke.points.some((point, pointIndex) => {
+                   const prevPoint = prevStroke.points[pointIndex];
+                   return !prevPoint || point.x !== prevPoint.x || point.y !== prevPoint.y;
+                 });
+        });
       
-      // 경로와 지우개 위치가 교차하는지 확인
-      return !path.points.some(point => {
-        const distance = Math.sqrt(
-          Math.pow(point.x - x, 2) + Math.pow(point.y - y, 2)
-        );
-        return distance <= eraseRadius + path.size / 2;
-      });
-    }));
-  };
+      if (hasChanged) {
+        console.log('strokes 변경 감지 - 이전:', previousStrokes.length, '개, 현재:', strokes.length, '개');
+        setUndoStack(prev => {
+          const newStack = [...prev, previousStrokes];
+          console.log('Undo 스택 업데이트:', newStack.length, '개 항목');
+          console.log('Undo 스택 내용:', newStack.map((stack, i) => `${i}: ${stack.length}개 스트로크`));
+          return newStack;
+        });
+        setRedoStack([]); // 새로운 액션 시 redo 스택 초기화
+        // previousStrokes를 현재 strokes로 업데이트
+        setPreviousStrokes([...strokes]);
+      }
+    }
+    setIsInitialLoad(false);
+  }, [strokes, isInitialLoad, isUndoRedoAction, previousStrokes]);
+
+  // 페이지 변경 시 캔버스 다시 그리기
+  useEffect(() => {
+    const canvas = excalidrawRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // 캔버스 크기 설정
+        canvas.width = canvas.offsetWidth;
+        canvas.height = canvas.offsetHeight;
+        
+        // 기존 경로들 다시 그리기
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 모든 스트로크 그리기
+        strokes.forEach(stroke => {
+          if (stroke.points.length < 2) return;
+          
+          ctx.beginPath();
+          ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+          
+          for (let i = 1; i < stroke.points.length; i++) {
+            ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+          }
+          
+          // 저장된 스타일로 그리기
+          if (stroke.tool === 'eraser') {
+            ctx.strokeStyle = isDarkMode ? '#1a1a1e' : '#f9fafb';
+            ctx.lineWidth = stroke.size * 3;
+          } else if (stroke.tool === 'highlighter') {
+            // 하이라이터: 반투명 처리
+            const color = stroke.color;
+            if (color.startsWith('#')) {
+              // hex 색상을 rgba로 변환
+              const r = parseInt(color.slice(1, 3), 16);
+              const g = parseInt(color.slice(3, 5), 16);
+              const b = parseInt(color.slice(5, 7), 16);
+              ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`; // 50% 투명도
+            } else {
+              ctx.strokeStyle = stroke.color;
+            }
+            ctx.lineWidth = stroke.size * 2;
+          } else {
+            ctx.strokeStyle = stroke.color;
+            ctx.lineWidth = stroke.size;
+          }
+          
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.stroke();
+        });
+      }
+    }
+  }, [strokes, isDarkMode]);
 
   // 스크롤로 페이지 변경
   useEffect(() => {
@@ -398,18 +380,171 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     }
   }, [currentPage, totalPages]);
 
+  // 캔버스 필기 이벤트 핸들러
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = excalidrawRef.current;
+    if (!canvas) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    setIsDrawing(true);
+    setCurrentPath([{ x, y }]);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    
+    const canvas = excalidrawRef.current;
+    if (!canvas) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    setCurrentPath(prev => [...prev, { x, y }]);
+    drawPath();
+  };
+
+  const handleMouseUp = () => {
+    if (isDrawing && currentPath.length > 0) {
+      if (currentTool === 'eraser') {
+        // 지우개: 해당 영역의 스트로크들을 제거
+        const erasedStrokes = strokes.filter(stroke => {
+          // 지우개 경로와 겹치는 스트로크들을 제거
+          return !stroke.points.some(point => 
+            currentPath.some(eraserPoint => {
+              const distance = Math.sqrt(
+                Math.pow(point.x - eraserPoint.x, 2) + 
+                Math.pow(point.y - eraserPoint.y, 2)
+              );
+              return distance < currentSize * 3; // 지우개 크기
+            })
+          );
+        });
+        
+        setStrokes(erasedStrokes);
+        saveDrawingData(currentPage, erasedStrokes);
+      } else {
+        // 일반 그리기 도구
+        const newStroke: DrawingStroke = {
+          points: [...currentPath],
+          color: currentColor,
+          size: currentSize,
+          tool: currentTool
+        };
+        
+        const newStrokes = [...strokes, newStroke];
+        setStrokes(newStrokes);
+        saveDrawingData(currentPage, newStrokes);
+      }
+      
+      setCurrentPath([]);
+      setIsDrawing(false);
+    }
+  };
+
+  const drawPath = () => {
+    const canvas = excalidrawRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // 캔버스 크기 설정
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+    
+    // 기존 스트로크들 다시 그리기
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 모든 스트로크 그리기
+    strokes.forEach(stroke => {
+      if (stroke.points.length < 2) return;
+      
+      // 지우개는 그리지 않음 (이미 제거됨)
+      if (stroke.tool === 'eraser') return;
+      
+      ctx.beginPath();
+      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+      
+      for (let i = 1; i < stroke.points.length; i++) {
+        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+      }
+      
+      // 저장된 스타일로 그리기
+      if (stroke.tool === 'highlighter') {
+        // 하이라이터: 반투명 처리
+        const color = stroke.color;
+        if (color.startsWith('#')) {
+          // hex 색상을 rgba로 변환
+          const r = parseInt(color.slice(1, 3), 16);
+          const g = parseInt(color.slice(3, 5), 16);
+          const b = parseInt(color.slice(5, 7), 16);
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`; // 50% 투명도
+        } else {
+          ctx.strokeStyle = stroke.color;
+        }
+        ctx.lineWidth = stroke.size * 2;
+      } else {
+        ctx.strokeStyle = stroke.color;
+        ctx.lineWidth = stroke.size;
+      }
+      
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    });
+    
+    // 현재 그리는 중인 경로 그리기
+    if (currentPath.length > 1 && currentTool !== 'eraser') {
+      ctx.beginPath();
+      ctx.moveTo(currentPath[0].x, currentPath[0].y);
+      
+      for (let i = 1; i < currentPath.length; i++) {
+        ctx.lineTo(currentPath[i].x, currentPath[i].y);
+      }
+      
+      // 현재 도구에 따라 스타일 설정
+      if (currentTool === 'highlighter') {
+        // 하이라이터: 반투명 처리
+        if (currentColor.startsWith('#')) {
+          // hex 색상을 rgba로 변환
+          const r = parseInt(currentColor.slice(1, 3), 16);
+          const g = parseInt(currentColor.slice(3, 5), 16);
+          const b = parseInt(currentColor.slice(5, 7), 16);
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`; // 50% 투명도
+        } else {
+          ctx.strokeStyle = currentColor;
+        }
+        ctx.lineWidth = currentSize * 2;
+      } else {
+        ctx.strokeStyle = currentColor;
+        ctx.lineWidth = currentSize;
+      }
+      
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    }
+  };
+
   // 전체 캔버스 지우기
   const clearAllCanvas = () => {
-    setPaths(prev => prev.filter(path => path.pageId !== currentPage));
+    setStrokes([]);
     setCurrentPath([]);
+    setIsDrawing(false);
+    saveDrawingData(currentPage, []);
     
-    const canvas = canvasRefs.current[currentPage];
+    const canvas = excalidrawRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
     }
+    
     toast.success(`페이지 ${currentPage} 필기를 지웠습니다.`);
   };
 
@@ -528,6 +663,79 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     }
   }, [activeTab, translatedContent]);
 
+  // 실행취소 함수
+  const handleUndo = useCallback(() => {
+    console.log('실행취소 시도 - undo 스택:', undoStack.length, '개 항목');
+    console.log('Undo 스택 내용:', undoStack.map((stack, i) => `${i}: ${stack.length}개 스트로크`));
+    if (undoStack.length > 0) {
+      const previousStrokes = undoStack[undoStack.length - 1];
+      const newUndoStack = undoStack.slice(0, -1);
+      // redoStack에는 실행취소 전의 현재 상태를 저장
+      const newRedoStack = [...redoStack, strokes];
+      
+      console.log('실행취소 실행 - 이전 strokes:', previousStrokes.length, '개');
+      
+      // 플래그를 먼저 설정하여 useEffect가 실행되지 않도록 함
+      setIsUndoRedoAction(true);
+      
+      // 상태 업데이트
+      setStrokes(previousStrokes);
+      setUndoStack(newUndoStack);
+      setRedoStack(newRedoStack);
+      setPreviousStrokes(previousStrokes); // previousStrokes도 업데이트
+      saveDrawingData(currentPage, previousStrokes);
+      
+      toast.success('실행 취소되었습니다.');
+      
+      // 즉시 플래그 리셋
+      setIsUndoRedoAction(false);
+    } else {
+      console.log('실행취소 실패 - undo 스택이 비어있음');
+    }
+  }, [undoStack, redoStack, strokes, currentPage, saveDrawingData]);
+
+  // 다시실행 함수
+  const handleRedo = useCallback(() => {
+    if (redoStack.length > 0) {
+      const nextStrokes = redoStack[redoStack.length - 1];
+      const newRedoStack = redoStack.slice(0, -1);
+      const newUndoStack = [...undoStack, strokes];
+      
+      // 플래그를 먼저 설정하여 useEffect가 실행되지 않도록 함
+      setIsUndoRedoAction(true);
+      
+      // 상태 업데이트
+      setStrokes(nextStrokes);
+      setRedoStack(newRedoStack);
+      setUndoStack(newUndoStack);
+      setPreviousStrokes(nextStrokes); // previousStrokes도 업데이트
+      saveDrawingData(currentPage, nextStrokes);
+      
+      toast.success('다시 실행되었습니다.');
+      
+      // 즉시 플래그 리셋
+      setIsUndoRedoAction(false);
+    }
+  }, [redoStack, undoStack, strokes, currentPage, saveDrawingData]);
+
+  // 실행취소/다시실행 키보드 이벤트
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          handleUndo();
+        } else if ((e.key === 'y') || (e.key === 'z' && e.shiftKey)) {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
 
 
   // AI 버튼 위치 계산 - 맵 사이드바가 열릴 때 동적으로 조정
@@ -574,87 +782,140 @@ Solves the problem where Gradient Descent shows different speeds depending on we
           </div>
         </div>
 
-        {/* 필기 도구 바 - 고정 높이 */}
-        <div className={`flex items-center justify-center gap-8 p-3 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} flex-shrink-0 h-18`}>
-          {/* 필기 도구 */}
-          <div className="flex items-center gap-4">
-            <Button
-              variant={currentTool === 'pen' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setCurrentTool('pen')}
-              className="flex flex-col items-center gap-1 h-auto py-2 px-3"
-            >
-              <Pen size={16} />
-              <span className="text-xs">필기</span>
-            </Button>
+                                   {/* 필기 도구 바 - 고정 높이 */}
+          <div className={`flex items-center justify-between p-3 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} flex-shrink-0 h-18`}>
+            {/* 왼쪽 도구들 */}
+            <div className="flex items-center gap-4">
+                             {/* 그리기 도구들 */}
+               <div className="flex items-center gap-2">
+                 <Button
+                   variant={currentTool === 'pen' ? 'default' : 'ghost'}
+                   size="sm"
+                   onClick={() => setCurrentTool('pen')}
+                   className="flex flex-col items-center gap-1 h-auto py-2 px-3"
+                 >
+                   <Pen size={16} />
+                   <span className="text-xs">펜</span>
+                 </Button>
+                 <Button
+                   variant={currentTool === 'highlighter' ? 'default' : 'ghost'}
+                   size="sm"
+                   onClick={() => setCurrentTool('highlighter')}
+                   className="flex flex-col items-center gap-1 h-auto py-2 px-3"
+                 >
+                   <Highlighter size={16} />
+                   <span className="text-xs">하이라이터</span>
+                 </Button>
+                 <Button
+                   variant={currentTool === 'eraser' ? 'default' : 'ghost'}
+                   size="sm"
+                   onClick={() => setCurrentTool('eraser')}
+                   className="flex flex-col items-center gap-1 h-auto py-2 px-3"
+                 >
+                   <Eraser size={16} />
+                   <span className="text-xs">지우개</span>
+                 </Button>
+               </div>
 
-            <Button
-              variant={currentTool === 'highlighter' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setCurrentTool('highlighter')}
-              className="flex flex-col items-center gap-1 h-auto py-2 px-3"
-            >
-              <Highlighter size={16} />
-              <span className="text-xs">형광펜</span>
-            </Button>
+              {/* 색상 선택 */}
+              <div className="flex items-center gap-2">
+                <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-xs`}>색상:</span>
+                <div className="flex gap-1">
+                  {COLORS.map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setCurrentColor(color)}
+                      className={`w-6 h-6 rounded border-2 transition-all ${
+                        currentColor === color ? 'border-gray-800 scale-110' : 'border-gray-300'
+                      }`}
+                      style={{ backgroundColor: color }}
+                      title={color}
+                    />
+                  ))}
+                </div>
+              </div>
 
-            <Button
-              variant={currentTool === 'eraser' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setCurrentTool('eraser')}
-              className="flex flex-col items-center gap-1 h-auto py-2 px-3"
-            >
-              <Eraser size={16} />
-              <span className="text-xs">지우개</span>
-            </Button>
+              {/* 선 굵기 선택 */}
+              <div className="flex items-center gap-2">
+                <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-xs`}>굵기:</span>
+                <div className="flex gap-1">
+                  {SIZES.map((size) => (
+                    <button
+                      key={size}
+                      onClick={() => setCurrentSize(size)}
+                      className={`px-2 py-1 rounded text-xs transition-all ${
+                        currentSize === size
+                          ? 'bg-blue-500 text-white'
+                          : isDarkMode
+                          ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={clearAllCanvas}
-              className="flex flex-col items-center gap-1 h-auto py-2 px-3 text-red-500 hover:text-red-600"
-            >
-              <X size={16} />
-              <span className="text-xs">전체지움</span>
-            </Button>
+                                             {/* 실행취소/다시실행 */}
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant={undoStack.length > 0 ? "default" : "ghost"}
+                    size="sm"
+                    onClick={handleUndo}
+                    disabled={undoStack.length === 0}
+                    className={`flex flex-col items-center gap-1 h-auto py-2 px-2 ${
+                      undoStack.length > 0 
+                        ? 'bg-blue-500 text-white hover:bg-blue-600 shadow-md' 
+                        : 'text-gray-600 hover:text-gray-800 disabled:opacity-50'
+                    }`}
+                    title={`실행취소 가능: ${undoStack.length}개 단계`}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                    </svg>
+                    <span className="text-xs">실행취소</span>
+                  </Button>
+                  <Button
+                    variant={redoStack.length > 0 ? "default" : "ghost"}
+                    size="sm"
+                    onClick={handleRedo}
+                    disabled={redoStack.length === 0}
+                    className={`flex flex-col items-center gap-1 h-auto py-2 px-2 ${
+                      redoStack.length > 0 
+                        ? 'bg-green-500 text-white hover:bg-green-600 shadow-md' 
+                        : 'text-gray-600 hover:text-gray-800 disabled:opacity-50'
+                    }`}
+                    title={`다시실행 가능: ${redoStack.length}개 단계`}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" />
+                    </svg>
+                    <span className="text-xs">다시실행</span>
+                  </Button>
+                </div>
+
+               {/* 전체 지우기 */}
+               <Button
+                 variant="ghost"
+                 size="sm"
+                 onClick={clearAllCanvas}
+                 className="flex flex-col items-center gap-1 h-auto py-2 px-3 text-red-500 hover:text-red-600"
+               >
+                 <X size={16} />
+                 <span className="text-xs">전체지움</span>
+               </Button>
+            </div>
+
+                         {/* 오른쪽 안내 메시지 */}
+             <div className="flex items-center gap-2">
+               <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm`}>
+                 {currentTool === 'pen' ? '펜으로 필기' : 
+                  currentTool === 'highlighter' ? '하이라이터로 강조' :
+                  currentTool === 'eraser' ? '지우개로 지우기' : '도구 선택'}
+               </span>
+             </div>
           </div>
-
-          {/* 색상 선택 */}
-          <div className="flex items-center gap-2">
-            <span className={`${isDarkMode ? 'text-white' : 'text-gray-700'} text-xs`}>색상:</span>
-            {COLORS.map((color) => (
-              <button
-                key={color}
-                onClick={() => setCurrentColor(color)}
-                className={`w-6 h-6 rounded border-2 ${
-                  currentColor === color ? 'border-blue-500 scale-110' : isDarkMode ? 'border-gray-500' : 'border-gray-300'
-                } transition-all hover:scale-105`}
-                style={{ backgroundColor: color }}
-              />
-            ))}
-          </div>
-
-          {/* 굵기 선택 */}
-          <div className="flex items-center gap-2">
-            <span className={`${isDarkMode ? 'text-white' : 'text-gray-700'} text-xs`}>굵기:</span>
-            {SIZES.map((size) => (
-              <button
-                key={size}
-                onClick={() => setCurrentSize(size)}
-                className={`w-8 h-8 rounded border transition-all hover:scale-105 ${
-                  currentSize === size 
-                    ? 'border-blue-500 bg-blue-500/20 scale-110' 
-                    : isDarkMode ? 'border-gray-500 hover:border-gray-400' : 'border-gray-300 hover:border-gray-400'
-                } flex items-center justify-center`}
-              >
-                <div
-                  className={`${isDarkMode ? 'bg-white' : 'bg-gray-700'} rounded-full`}
-                  style={{ width: `${size * 2}px`, height: `${size * 2}px` }}
-                />
-              </button>
-            ))}
-          </div>
-        </div>
 
         {/* PDF 뷰어 및 캔버스 - 나머지 공간 전체 사용 */}
         <div className="flex-1 flex flex-col items-center justify-center overflow-hidden" ref={pdfViewerRef}>
@@ -676,8 +937,9 @@ Solves the problem where Gradient Descent shows different speeds depending on we
             </div>
           )}
 
-                                           {/* react-pdf Document */}
-                  <Document
+                                           {/* react-pdf Document with Excalidraw overlay */}
+                  <div className="relative inline-block" ref={containerRef}>
+                    <Document
                     file={pdfUrl}
                     onLoadSuccess={({ numPages }) => {
                       console.log('PDF 로드 성공, 페이지 수:', numPages);
@@ -685,15 +947,15 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                       setTotalPages(numPages);
                     }}
                                          onLoadError={(error) => {
-                       console.error('PDF 로드 에러:', error);
-                       console.error('PDF 로드 에러 상세:', {
-                         message: error.message,
-                         name: error.name,
-                         stack: error.stack,
-                         pdfUrl: pdfUrl
-                       });
-                       setError(`PDF를 로드할 수 없습니다. (${error.message})`);
-                     }}
+                      console.error('PDF 로드 에러:', error);
+                      console.error('PDF 로드 에러 상세:', {
+                        message: error.message,
+                        name: error.name,
+                        stack: error.stack,
+                        pdfUrl: pdfUrl
+                      });
+                      setError(`PDF를 로드할 수 없습니다. (${error.message})`);
+                    }}
                     onSourceError={(error) => {
                       console.error('PDF 소스 에러:', error);
                       setError('PDF 소스를 로드할 수 없습니다.');
@@ -712,13 +974,35 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                       renderAnnotationLayer={false}
                     />
                   </Document>
-                  
-          {/* 페이지 정보 - PDF 아래에 위치 */}
-          <div className="text-center mt-4">
-            <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm`}>
-              페이지 {currentPage} / {numPages}
-            </span>
-          </div>
+                  <div className="absolute inset-0 pointer-events-none">
+                    {pdfUrl && (
+                      <div className="w-full h-full pointer-events-auto excalidraw-container">
+                        <canvas
+                          ref={excalidrawRef}
+                          className="w-full h-full"
+                          style={{
+                            background: 'transparent',
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            zIndex: 1
+                          }}
+                          onMouseDown={handleMouseDown}
+                          onMouseMove={handleMouseMove}
+                          onMouseUp={handleMouseUp}
+                          onMouseLeave={handleMouseUp}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  </div>
+                   
+           {/* 페이지 정보 - PDF 아래에 위치 */}
+           <div className="text-center mt-4">
+             <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm`}>
+               페이지 {currentPage} / {numPages}
+             </span>
+           </div>
         </div>
       </div>
 
