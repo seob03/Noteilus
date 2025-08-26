@@ -308,57 +308,67 @@ Solves the problem where Gradient Descent shows different speeds depending on we
 
   // 페이지 변경 시 캔버스 다시 그리기
   useEffect(() => {
-    const canvas = excalidrawRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        // 캔버스 크기 설정
-        canvas.width = canvas.offsetWidth;
-        canvas.height = canvas.offsetHeight;
-        
-        // 기존 경로들 다시 그리기
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // 모든 스트로크 그리기
-        strokes.forEach(stroke => {
-          if (stroke.points.length < 2) return;
+    // 페이지 변경 시 약간의 지연을 두고 캔버스 렌더링 (DOM 업데이트 완료 후)
+    const renderCanvas = () => {
+      const canvas = excalidrawRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // 캔버스 크기 설정
+          canvas.width = canvas.offsetWidth;
+          canvas.height = canvas.offsetHeight;
           
-          ctx.beginPath();
-          ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+          // 기존 경로들 다시 그리기
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
           
-          for (let i = 1; i < stroke.points.length; i++) {
-            ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
-          }
-          
-          // 저장된 스타일로 그리기
-          if (stroke.tool === 'eraser') {
-            ctx.strokeStyle = isDarkMode ? '#1a1a1e' : '#f9fafb';
-            ctx.lineWidth = stroke.size * 3;
-          } else if (stroke.tool === 'highlighter') {
-            // 하이라이터: 반투명 처리
-            const color = stroke.color;
-            if (color.startsWith('#')) {
-              // hex 색상을 rgba로 변환
-              const r = parseInt(color.slice(1, 3), 16);
-              const g = parseInt(color.slice(3, 5), 16);
-              const b = parseInt(color.slice(5, 7), 16);
-              ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`; // 50% 투명도
+          // 모든 스트로크 그리기
+          strokes.forEach(stroke => {
+            if (stroke.points.length < 2) return;
+            
+            ctx.beginPath();
+            ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+            
+            for (let i = 1; i < stroke.points.length; i++) {
+              ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+            }
+            
+            // 저장된 스타일로 그리기
+            if (stroke.tool === 'eraser') {
+              ctx.strokeStyle = isDarkMode ? '#1a1a1e' : '#f9fafb';
+              ctx.lineWidth = stroke.size * 3;
+            } else if (stroke.tool === 'highlighter') {
+              // 하이라이터: 반투명 처리
+              const color = stroke.color;
+              if (color.startsWith('#')) {
+                // hex 색상을 rgba로 변환
+                const r = parseInt(color.slice(1, 3), 16);
+                const g = parseInt(color.slice(3, 5), 16);
+                const b = parseInt(color.slice(5, 7), 16);
+                ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`; // 50% 투명도
+              } else {
+                ctx.strokeStyle = stroke.color;
+              }
+              ctx.lineWidth = stroke.size * 2;
             } else {
               ctx.strokeStyle = stroke.color;
+              ctx.lineWidth = stroke.size;
             }
-            ctx.lineWidth = stroke.size * 2;
-          } else {
-            ctx.strokeStyle = stroke.color;
-            ctx.lineWidth = stroke.size;
-          }
-          
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          ctx.stroke();
-        });
+            
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+          });
+        }
       }
+    };
+
+    // 페이지 변경 시에는 약간의 지연을 두고 렌더링
+    if (currentPage) {
+      setTimeout(renderCanvas, 10);
+    } else {
+      renderCanvas();
     }
-  }, [strokes, isDarkMode]);
+  }, [strokes, isDarkMode, currentPage]); // currentPage 의존성 추가
 
   // 스크롤로 페이지 변경
   useEffect(() => {
