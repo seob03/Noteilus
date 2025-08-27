@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Menu, Settings, ChevronRight, ChevronDown, Plus, ArrowUpDown, CheckCircle2, Move, Trash2, Search } from 'lucide-react';
+import { Menu, Settings, ChevronRight, ChevronDown, Plus, ArrowUpDown, CheckCircle2, Move, Trash2, Search, File, Folder, FileText } from 'lucide-react';
 import { useDrag, useDrop, DragSourceMonitor } from 'react-dnd';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,6 +7,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { FolderSelectDialog } from './FolderSelectDialog';
 import { toast } from 'sonner';
+import { Portal } from './Portal'; // 새로 추가
+
 
 interface Document {
   id: string;
@@ -200,7 +202,26 @@ const DraggableCard = React.forwardRef<HTMLDivElement, {
   onNameBlur: () => void;
   currentFolder: string | null;
   handleAddClick: () => void;
-}>(({ doc, index, isDarkMode, selectionMode, selectedDocuments, onToggleSelection, onPdfClick, onFolderClick, onMainDrop, onNameDoubleClick, editingId, editingName, onNameChange, onNameKeyPress, onNameBlur, currentFolder, handleAddClick }, ref) => {
+  showAddMenu: boolean;
+  onAddPdf: () => void;
+  onAddFolder: () => void;
+  onAddNote: () => void;
+}>(({ doc, index, isDarkMode, selectionMode, selectedDocuments, onToggleSelection, onPdfClick, onFolderClick, onMainDrop, onNameDoubleClick, editingId, editingName, onNameChange, onNameKeyPress, onNameBlur, currentFolder, handleAddClick, showAddMenu, onAddPdf, onAddFolder, onAddNote }, ref) => {
+  const anchorRef = React.useRef<HTMLDivElement | null>(null);
+  const [menuPos, setMenuPos] = React.useState<{ left: number; top: number } | null>(null);
+
+  React.useEffect(() => {
+    if (showAddMenu && anchorRef.current) {
+      const rect = anchorRef.current.getBoundingClientRect();
+      setMenuPos({
+        left: rect.left + rect.width / 2,
+        top: rect.bottom + 12, // 버튼 아래로 12px
+      });
+    } else if (!showAddMenu) {
+      setMenuPos(null);
+    }
+  }, [showAddMenu]);
+
   const [{ isDragging }, drag] = useDrag(() => ({
     type: ItemTypes.DOCUMENT,
     item: { id: doc.id, type: doc.type, name: doc.name, index: doc.id === 'add' ? -1 : index },
@@ -262,7 +283,7 @@ const DraggableCard = React.forwardRef<HTMLDivElement, {
   return (
     <div 
       ref={combinedRef}
-      className="relative group"
+      className="relative group overflow-visible"
       style={{ opacity: isDragging ? 0.3 : 1 }}
     >
       {selectionMode && doc.id !== 'add' && (
@@ -291,21 +312,24 @@ const DraggableCard = React.forwardRef<HTMLDivElement, {
       )}
 
       <div 
-        className={`w-full aspect-[1.414/1] rounded-xl flex items-center justify-center cursor-pointer transition-all shadow-sm overflow-hidden relative ${
+        className={`w-full aspect-[1.414/1] rounded-xl flex items-center justify-center cursor-pointer transition-all shadow-sm relative ${
           !isDragging ? 'hover:scale-105' : ''
         } ${
           doc.id === 'add' 
-            ? 'bg-[#d9d9d9] hover:bg-[#c9c9c9]' 
+            ? 'bg-[#d9d9d9] hover:bg-[#c9c9c9] overflow-visible' 
             : doc.type === 'folder'
-            ? `bg-[#4f88b7] hover:bg-[#5a95c7] ${isFolderTarget ? 'ring-4 ring-blue-400 ring-opacity-70 bg-[#5a95c7] scale-105' : ''}`
-            : `bg-[#d9d9d9] hover:bg-[#c9c9c9] ${isReorderTarget ? 'ring-2 ring-green-400 ring-opacity-70' : ''}`
+            ? `bg-[#4f88b7] hover:bg-[#5a95c7] overflow-hidden ${isFolderTarget ? 'ring-4 ring-blue-400 ring-opacity-70 bg-[#5a95c7] scale-105' : ''}`
+            : `bg-[#d9d9d9] hover:bg-[#c9c9c9] overflow-hidden ${isReorderTarget ? 'ring-2 ring-green-400 ring-opacity-70' : ''}`
         }`}
-        onClick={() => {
+        onClick={(e) => {
+          console.log('DraggableCard 클릭됨', { docId: doc.id, selectionMode, docType: doc.type });
           if (selectionMode && doc.id !== 'add') {
             onToggleSelection(doc.id);
           } else if (doc.type === 'folder') {
             onFolderClick(doc);
           } else if (doc.id === 'add') {
+            console.log('+ 버튼 클릭됨, handleAddClick 호출');
+            e.stopPropagation(); // 이벤트 전파 방지
             handleAddClick();
           } else if (doc.type === 'pdf') {
             onPdfClick(doc);
@@ -329,18 +353,113 @@ const DraggableCard = React.forwardRef<HTMLDivElement, {
         )}
         
         {doc.id === 'add' ? (
-          <Plus size={32} className="md:w-16 md:h-16 text-gray-600" />
-        ) : doc.type === 'folder' ? (
-          <div className="w-12 h-9 md:w-16 md:h-12 bg-[#64a3d7] rounded border-l-2 border-t-2 border-[#5a95c7]"></div>
-        ) : doc.previewImage ? (
-          <img
-            src={doc.previewImage}
-            alt={doc.name}
-            className="w-full h-full object-cover"
-          />
+          <div className="relative add-menu-container">
+            {/* 위치 기준점(앵커) */}
+            <div ref={anchorRef} className="absolute inset-0 pointer-events-none" />
+
+            <Plus size={32} className="md:w-16 md:h-16 text-gray-600" />
+
+            {/* 포털로 띄우는 토글 메뉴 */}
+            {showAddMenu && menuPos && (
+              <Portal>
+                <div
+                  id="add-menu-portal"
+                  className={`rounded-xl shadow-xl border z-[1000000] ${
+                    isDarkMode ? 'bg-[#2A2A2E] border-gray-600' : 'bg-white border-gray-200'
+                  }`}
+                  style={{
+                    position: 'fixed',
+                    left: `${menuPos.left}px`,
+                    top: `${menuPos.top}px`,
+                    transform: 'translateX(-50%)',
+                    width: '300px',
+                    maxWidth: '95vw',
+                    boxShadow: '0 25px 50px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="p-3 sm:p-4">
+                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                      {/* 기존 onAddPdf / onAddFolder / onAddNote 버튼 그대로 복붙 */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddPdf();
+                        }}
+                        className={`flex-1 flex flex-col items-center gap-3 px-4 py-4 sm:px-6 sm:py-5 text-center rounded-lg transition-all duration-200 ${
+                          isDarkMode 
+                            ? 'text-[#efefef] hover:bg-gray-700 hover:scale-[1.02]' 
+                            : 'text-gray-700 hover:bg-gray-50 hover:scale-[1.02]'
+                        } group`}
+                      >
+                        <div className={`p-2 sm:p-3 rounded-lg flex-shrink-0 ${
+                          isDarkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-50 text-blue-600'
+                        } group-hover:scale-110 transition-transform`}>
+                          <File size={20} className="sm:w-6 sm:h-6" />
+                        </div>
+                        <div className="font-medium text-sm sm:text-base leading-tight">
+                          PDF 파일<br />추가
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddFolder();
+                        }}
+                        className={`flex-1 flex flex-col items-center gap-3 px-4 py-4 sm:px-6 sm:py-5 text-center rounded-lg transition-all duration-200 ${
+                          isDarkMode 
+                            ? 'text-[#efefef] hover:bg-gray-700 hover:scale-[1.02]' 
+                            : 'text-gray-700 hover:bg-gray-50 hover:scale-[1.02]'
+                        } group`}
+                      >
+                        <div className={`p-2 sm:p-3 rounded-lg flex-shrink-0 ${
+                          isDarkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-50 text-amber-600'
+                        } group-hover:scale-110 transition-transform`}>
+                          <Folder size={20} className="sm:w-6 sm:h-6" />
+                        </div>
+                        <div className="font-medium text-sm sm:text-base leading-tight">
+                          폴더<br />생성
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddNote();
+                        }}
+                        className={`flex-1 flex flex-col items-center gap-3 px-4 py-4 sm:px-6 sm:py-5 text-center rounded-lg transition-all duration-200 ${
+                          isDarkMode 
+                            ? 'text-[#efefef] hover:bg-gray-700 hover:scale-[1.02]' 
+                            : 'text-gray-700 hover:bg-gray-50 hover:scale-[1.02]'
+                        } group`}
+                      >
+                        <div className={`p-2 sm:p-3 rounded-lg flex-shrink-0 ${
+                          isDarkMode ? 'bg-green-500/10 text-green-400' : 'bg-green-50 text-green-600'
+                        } group-hover:scale-110 transition-transform`}>
+                          <FileText size={20} className="sm:w-6 sm:h-6" />
+                        </div>
+                        <div className="font-medium text-sm sm:text-base leading-tight">
+                          빈 노트<br />생성
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </Portal>
+            )}
+          </div>
         ) : (
-          <div className="w-10 h-12 md:w-12 md:h-16 bg-white rounded shadow-sm"></div>
+          // 나머지 기존 분기 유지
+          doc.type === 'folder' ? (
+            <div className="w-12 h-9 md:w-16 md:h-12 bg-[#64a3d7] rounded border-l-2 border-t-2 border-[#5a95c7]"></div>
+          ) : doc.previewImage ? (
+            <img src={doc.previewImage} alt={doc.name} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-10 h-12 md:w-12 md:h-16 bg-white rounded shadow-sm"></div>
+          )
         )}
+
       </div>
 
       <div className="mt-2 md:mt-3 px-1">
@@ -445,6 +564,11 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
   const [searchQuery, setSearchQuery] = useState('');
   const [showFolderDialog, setShowFolderDialog] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  
+  // 추가 메뉴 상태
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showFolderCreateModal, setShowFolderCreateModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
 
   // 이름 편집 상태
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -507,6 +631,36 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
       }]);
     }
   }, [isLoggedIn]);
+
+  // 외부 클릭 시 추가 메뉴 닫기
+  // 기존 useEffect 교체
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      // add-menu-container(트리거)나 포털 내부(#add-menu-portal)를 클릭한 경우는 유지
+      if (
+        showAddMenu &&
+        !(
+          target.closest('.add-menu-container') ||
+          target.closest('#add-menu-portal')
+        )
+      ) {
+        setShowAddMenu(false);
+      }
+    };
+
+    if (showAddMenu) {
+      const timeoutId = setTimeout(() => {
+        document.addEventListener('click', handleClickOutside);
+      }, 100);
+
+      return () => {
+        clearTimeout(timeoutId);
+        document.removeEventListener('click', handleClickOutside);
+      };
+    }
+  }, [showAddMenu]);
+
 
   // 화면 크기 감지
   useEffect(() => {
@@ -854,15 +1008,79 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
   };
 
   const handleAddClick = () => {
+    console.log('handleAddClick 호출됨', { isLoggedIn, showAddMenu });
     if (!isLoggedIn) {
       setShowLoginModal(true);
     } else {
-      // 숨겨진 파일 입력 트리거
-      const fileInput = document.getElementById('pdf-file-input') as HTMLInputElement;
-      if (fileInput) {
-        fileInput.click();
-      }
+      console.log('showAddMenu 상태 변경:', !showAddMenu);
+      setShowAddMenu(!showAddMenu);
     }
+  };
+
+  // PDF 파일 추가
+  const handleAddPdf = () => {
+    setShowAddMenu(false);
+    const fileInput = document.getElementById('pdf-file-input') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.click();
+    }
+  };
+
+  // 폴더 추가
+  const handleAddFolder = () => {
+    setShowAddMenu(false);
+    setShowFolderCreateModal(true);
+    setNewFolderName('');
+  };
+
+  // 빈 노트 추가 (TODO: 나중에 구현)
+  const handleAddNote = () => {
+    setShowAddMenu(false);
+    toast.info('빈 노트 기능은 곧 추가될 예정입니다.');
+  };
+
+  // 폴더 생성
+  const handleCreateFolder = () => {
+    if (!newFolderName.trim()) {
+      toast.error('폴더 이름을 입력해주세요.');
+      return;
+    }
+
+    const newFolder: Document = {
+      id: `folder_${Date.now()}`,
+      name: newFolderName.trim(),
+      type: 'folder',
+      children: []
+    };
+
+    if (currentFolder) {
+      // 현재 폴더 내부에 추가
+      setDocuments(prevDocs => {
+        const newDocs = [...prevDocs];
+        const updateFolder = (docs: Document[]): boolean => {
+          for (let doc of docs) {
+            if (doc.id === currentFolder && doc.type === 'folder') {
+              if (!doc.children) doc.children = [];
+              doc.children.push(newFolder);
+              return true;
+            }
+            if (doc.children && updateFolder(doc.children)) {
+              return true;
+            }
+          }
+          return false;
+        };
+        updateFolder(newDocs);
+        return newDocs;
+      });
+    } else {
+      // 루트에 추가
+      setDocuments(prevDocs => [...prevDocs, newFolder]);
+    }
+
+    toast.success(`"${newFolderName}" 폴더가 생성되었습니다.`);
+    setShowFolderCreateModal(false);
+    setNewFolderName('');
   };
 
   // 검색 필터링
@@ -1100,7 +1318,7 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
       </div>
 
       {/* 메인 콘텐츠 */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col relative z-[100000]">
         {/* 상단 헤더 */}
         <div className={`flex items-center justify-between p-4 md:p-6 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
           <div className="flex items-center gap-4">
@@ -1199,8 +1417,8 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
         </div>
 
         {/* 메인 콘텐츠 그리드 */}
-        <div className="flex-1 p-4 md:p-6 overflow-y-auto">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6">
+        <div className="flex-1 p-4 md:p-6 overflow-y-auto overflow-x-visible">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6 relative">
             {filteredDocuments.map((doc, index) => (
               <DraggableCard
                 key={doc.id}
@@ -1221,6 +1439,10 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
                 onNameBlur={handleNameBlur}
                 currentFolder={currentFolder}
                 handleAddClick={handleAddClick}
+                showAddMenu={showAddMenu}
+                onAddPdf={handleAddPdf}
+                onAddFolder={handleAddFolder}
+                onAddNote={handleAddNote}
               />
             ))}
           </div>
@@ -1264,6 +1486,59 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
                 className="bg-blue-500 hover:bg-blue-600 text-white"
               >
                 로그인
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 폴더 생성 모달 */}
+      <Dialog open={showFolderCreateModal} onOpenChange={setShowFolderCreateModal}>
+        <DialogContent className={`${isDarkMode ? 'bg-[#121214] border-gray-600' : 'bg-white border-gray-200'} max-w-md`}>
+          <DialogHeader>
+            <DialogTitle className={isDarkMode ? 'text-[#efefef]' : 'text-gray-900'}>
+              새 폴더 만들기
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm font-medium`}>
+                폴더 이름
+              </label>
+              <Input
+                type="text"
+                placeholder="폴더 이름을 입력하세요"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleCreateFolder();
+                  } else if (e.key === 'Escape') {
+                    setShowFolderCreateModal(false);
+                    setNewFolderName('');
+                  }
+                }}
+                className={`${isDarkMode ? 'bg-[#2A2A2E] border-gray-600 text-[#efefef] placeholder:text-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder:text-gray-500'}`}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowFolderCreateModal(false);
+                  setNewFolderName('');
+                }}
+                className={`${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+              >
+                취소
+              </Button>
+              <Button
+                onClick={handleCreateFolder}
+                disabled={!newFolderName.trim()}
+                className="bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                추가
               </Button>
             </div>
           </div>
