@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronLeft, Menu, Search, X, Pen, Highlighter, Eraser, Share2, FileEdit, BookOpen, Settings as SettingsIcon, Download, Map, Languages, Copy } from 'lucide-react';
+import { ChevronLeft, Menu, Search, X, Pen, Highlighter, Eraser, Square, Circle, Share2, FileEdit, BookOpen, Settings as SettingsIcon, Download, Map, Languages, Copy } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -96,6 +96,10 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentPath, setCurrentPath] = useState<DrawingPath[]>([]);
   const [strokes, setStrokes] = useState<DrawingStroke[]>([]);
+  
+  // 도형 그리기 상태
+  const [startPoint, setStartPoint] = useState<DrawingPath | null>(null);
+  const [previewShape, setPreviewShape] = useState<DrawingPath | null>(null);
   
   // 필기 도구 상태
   const [currentTool, setCurrentTool] = useState<'pen' | 'highlighter' | 'eraser' | 'rectangle' | 'circle' | 'line'>('pen');
@@ -401,20 +405,18 @@ Solves the problem where Gradient Descent shows different speeds depending on we
           
           // 모든 스트로크 그리기
           strokes.forEach(stroke => {
-            if (stroke.points.length < 2) return;
+            if (stroke.points.length < 1) return;
             
-            ctx.beginPath();
-            ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+            // 지우개는 그리지 않음 (이미 제거됨)
+            if (stroke.tool === 'eraser') return;
             
-            for (let i = 1; i < stroke.points.length; i++) {
-              ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
-            }
+            // 스타일 설정
+            ctx.strokeStyle = stroke.color;
+            ctx.lineWidth = stroke.size;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
             
-            // 저장된 스타일로 그리기
-            if (stroke.tool === 'eraser') {
-              ctx.strokeStyle = isDarkMode ? '#1a1a1e' : '#f9fafb';
-              ctx.lineWidth = stroke.size * 3;
-            } else if (stroke.tool === 'highlighter') {
+            if (stroke.tool === 'highlighter') {
               // 하이라이터: 반투명 처리
               const color = stroke.color;
               if (color.startsWith('#')) {
@@ -427,14 +429,47 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                 ctx.strokeStyle = stroke.color;
               }
               ctx.lineWidth = stroke.size * 2;
-            } else {
-              ctx.strokeStyle = stroke.color;
-              ctx.lineWidth = stroke.size;
             }
             
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.stroke();
+            ctx.beginPath();
+            
+            if (stroke.tool === 'rectangle') {
+              // 사각형 그리기
+              if (stroke.points.length >= 2) {
+                const startX = stroke.points[0].x;
+                const startY = stroke.points[0].y;
+                const endX = stroke.points[1].x;
+                const endY = stroke.points[1].y;
+                const width = endX - startX;
+                const height = endY - startY;
+                
+                ctx.rect(startX, startY, width, height);
+                ctx.stroke();
+              }
+            } else if (stroke.tool === 'circle') {
+              // 원 그리기
+              if (stroke.points.length >= 2) {
+                const centerX = stroke.points[0].x;
+                const centerY = stroke.points[0].y;
+                const endX = stroke.points[1].x;
+                const endY = stroke.points[1].y;
+                const radius = Math.sqrt(Math.pow(endX - centerX, 2) + Math.pow(endY - centerY, 2));
+                
+                ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+                ctx.stroke();
+              }
+            } else {
+              // 일반 선 그리기 (pen, highlighter, line)
+              if (stroke.points.length >= 2) {
+                ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+                
+                for (let i = 1; i < stroke.points.length; i++) {
+                  ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+                }
+                
+                ctx.stroke();
+              }
+            }
           });
         }
       }
@@ -479,7 +514,15 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     const y = e.clientY - rect.top;
     
     setIsDrawing(true);
-    setCurrentPath([{ x, y }]);
+    
+    if (currentTool === 'rectangle' || currentTool === 'circle') {
+      // 도형 그리기: 시작점 설정
+      setStartPoint({ x, y });
+      setPreviewShape({ x, y });
+    } else {
+      // 일반 그리기: 경로 시작
+      setCurrentPath([{ x, y }]);
+    }
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -492,12 +535,48 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     
-    setCurrentPath(prev => [...prev, { x, y }]);
-    drawPath();
+    if (currentTool === 'rectangle' || currentTool === 'circle') {
+      // 도형 그리기: 미리보기 업데이트
+      setPreviewShape({ x, y });
+      drawPath();
+    } else {
+      // 일반 그리기: 경로에 점 추가
+      setCurrentPath(prev => [...prev, { x, y }]);
+      drawPath();
+    }
   };
 
   const handleMouseUp = () => {
-    if (isDrawing && currentPath.length > 0) {
+    if (!isDrawing) return;
+    
+    if (currentTool === 'rectangle' || currentTool === 'circle') {
+      // 도형 그리기 완료
+      if (!startPoint || !previewShape) return;
+      
+      console.log(`${currentTool} 그리기 완료 - 시작:`, startPoint, '끝:', previewShape);
+      
+      // 항상 현재 상태를 undoStack에 저장
+      console.log('📚 undoStack에 현재 상태 저장 - undoStack.length:', getCurrentUndoStack().length);
+      setCurrentUndoStack([...getCurrentUndoStack(), [...strokes]]);
+      setCurrentRedoStack([]);
+      
+      // 도형을 두 점으로 표현
+      const shapeStroke: DrawingStroke = {
+        points: [startPoint, previewShape],
+        color: currentColor,
+        size: currentSize,
+        tool: currentTool
+      };
+      
+      const newStrokes = [...strokes, shapeStroke];
+      console.log('📐 새로운 도형 추가 완료 - 이전:', strokes.length, '개 → 새로:', newStrokes.length, '개');
+      setStrokes(newStrokes);
+      saveDrawingData(currentPage, newStrokes);
+      
+      // 도형 그리기 상태 초기화
+      setStartPoint(null);
+      setPreviewShape(null);
+    } else if (currentPath.length > 0) {
       console.log('마우스업 - 현재 strokes 수:', strokes.length);
       console.log('마우스업 - previousStrokesRef:', previousStrokesRef.current.length);
       
@@ -556,8 +635,10 @@ Solves the problem where Gradient Descent shows different speeds depending on we
       }
       
       setCurrentPath([]);
-      setIsDrawing(false);
     }
+    
+    // 모든 경우에 그리기 상태 종료
+    setIsDrawing(false);
   };
 
   const drawPath = () => {
@@ -576,19 +657,17 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     
     // 모든 스트로크 그리기
     strokes.forEach(stroke => {
-      if (stroke.points.length < 2) return;
+      if (stroke.points.length < 1) return;
       
       // 지우개는 그리지 않음 (이미 제거됨)
       if (stroke.tool === 'eraser') return;
       
-      ctx.beginPath();
-      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+      // 스타일 설정
+      ctx.strokeStyle = stroke.color;
+      ctx.lineWidth = stroke.size;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
       
-      for (let i = 1; i < stroke.points.length; i++) {
-        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
-      }
-      
-      // 저장된 스타일로 그리기
       if (stroke.tool === 'highlighter') {
         // 하이라이터: 반투명 처리
         const color = stroke.color;
@@ -602,26 +681,56 @@ Solves the problem where Gradient Descent shows different speeds depending on we
           ctx.strokeStyle = stroke.color;
         }
         ctx.lineWidth = stroke.size * 2;
-      } else {
-        ctx.strokeStyle = stroke.color;
-        ctx.lineWidth = stroke.size;
       }
       
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.stroke();
+      ctx.beginPath();
+      
+      if (stroke.tool === 'rectangle') {
+        // 사각형 그리기
+        if (stroke.points.length >= 2) {
+          const startX = stroke.points[0].x;
+          const startY = stroke.points[0].y;
+          const endX = stroke.points[1].x;
+          const endY = stroke.points[1].y;
+          const width = endX - startX;
+          const height = endY - startY;
+          
+          ctx.rect(startX, startY, width, height);
+          ctx.stroke();
+        }
+      } else if (stroke.tool === 'circle') {
+        // 원 그리기
+        if (stroke.points.length >= 2) {
+          const centerX = stroke.points[0].x;
+          const centerY = stroke.points[0].y;
+          const endX = stroke.points[1].x;
+          const endY = stroke.points[1].y;
+          const radius = Math.sqrt(Math.pow(endX - centerX, 2) + Math.pow(endY - centerY, 2));
+          
+          ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+          ctx.stroke();
+        }
+      } else {
+        // 일반 선 그리기 (pen, highlighter, line)
+        if (stroke.points.length >= 2) {
+          ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+          
+          for (let i = 1; i < stroke.points.length; i++) {
+            ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+          }
+          
+          ctx.stroke();
+        }
+      }
     });
     
-    // 현재 그리는 중인 경로 그리기
-    if (currentPath.length > 1 && currentTool !== 'eraser') {
-      ctx.beginPath();
-      ctx.moveTo(currentPath[0].x, currentPath[0].y);
+    // 현재 그리는 중인 미리보기 그리기
+    if (isDrawing) {
+      ctx.strokeStyle = currentColor;
+      ctx.lineWidth = currentSize;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
       
-      for (let i = 1; i < currentPath.length; i++) {
-        ctx.lineTo(currentPath[i].x, currentPath[i].y);
-      }
-      
-      // 현재 도구에 따라 스타일 설정
       if (currentTool === 'highlighter') {
         // 하이라이터: 반투명 처리
         if (currentColor.startsWith('#')) {
@@ -630,18 +739,36 @@ Solves the problem where Gradient Descent shows different speeds depending on we
           const g = parseInt(currentColor.slice(3, 5), 16);
           const b = parseInt(currentColor.slice(5, 7), 16);
           ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`; // 50% 투명도
-        } else {
-          ctx.strokeStyle = currentColor;
         }
         ctx.lineWidth = currentSize * 2;
-      } else {
-        ctx.strokeStyle = currentColor;
-        ctx.lineWidth = currentSize;
       }
       
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.stroke();
+      ctx.beginPath();
+      
+      if (currentTool === 'rectangle' && startPoint && previewShape) {
+        // 사각형 미리보기
+        const width = previewShape.x - startPoint.x;
+        const height = previewShape.y - startPoint.y;
+        ctx.rect(startPoint.x, startPoint.y, width, height);
+        ctx.stroke();
+      } else if (currentTool === 'circle' && startPoint && previewShape) {
+        // 원 미리보기
+        const radius = Math.sqrt(
+          Math.pow(previewShape.x - startPoint.x, 2) + 
+          Math.pow(previewShape.y - startPoint.y, 2)
+        );
+        ctx.arc(startPoint.x, startPoint.y, radius, 0, 2 * Math.PI);
+        ctx.stroke();
+      } else if (currentPath.length > 1 && currentTool !== 'eraser') {
+        // 일반 선 미리보기
+        ctx.moveTo(currentPath[0].x, currentPath[0].y);
+        
+        for (let i = 1; i < currentPath.length; i++) {
+          ctx.lineTo(currentPath[i].x, currentPath[i].y);
+        }
+        
+        ctx.stroke();
+      }
     }
   };
 
@@ -828,9 +955,33 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     }
   }, [undoStacks, redoStacks, strokes, currentPage, saveDrawingData]);
 
-  // 실행취소/다시실행 키보드 이벤트
+  // 페이지 이동 함수들
+  const goToNextPage = useCallback(() => {
+    if (currentPage < totalPages) {
+      setCurrentPage(prev => prev + 1);
+    }
+  }, [currentPage, totalPages]);
+
+  const goToPrevPage = useCallback(() => {
+    if (currentPage > 1) {
+      setCurrentPage(prev => prev - 1);
+    }
+  }, [currentPage]);
+
+  // 키보드 이벤트 (실행취소/다시실행 + 페이지 이동)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // input, textarea, 또는 contenteditable 요소에 포커스가 있으면 무시
+      const activeElement = document.activeElement;
+      const isTyping = activeElement && (
+        activeElement.tagName === 'INPUT' ||
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.getAttribute('contenteditable') === 'true'
+      );
+
+      if (isTyping) return;
+
+      // Ctrl/Cmd + Z/Y: 실행취소/다시실행
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 'z' && !e.shiftKey) {
           e.preventDefault();
@@ -839,12 +990,29 @@ Solves the problem where Gradient Descent shows different speeds depending on we
           e.preventDefault();
           handleRedo();
         }
+      } 
+      // 방향키: 페이지 이동
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        goToNextPage();
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goToPrevPage();
+      }
+      // 스페이스바: 페이지 이동
+      else if (e.key === ' ') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          goToPrevPage(); // Shift + Space: 이전 페이지
+        } else {
+          goToNextPage(); // Space: 다음 페이지
+        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo, goToNextPage, goToPrevPage]);
 
 
 
@@ -924,6 +1092,24 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                  >
                    <Eraser size={16} />
                    <span className="text-xs">지우개</span>
+                 </Button>
+                 <Button
+                   variant={currentTool === 'rectangle' ? 'default' : 'ghost'}
+                   size="sm"
+                   onClick={() => setCurrentTool('rectangle')}
+                   className="flex flex-col items-center gap-1 h-auto py-2 px-3"
+                 >
+                   <Square size={16} />
+                   <span className="text-xs">사각형</span>
+                 </Button>
+                 <Button
+                   variant={currentTool === 'circle' ? 'default' : 'ghost'}
+                   size="sm"
+                   onClick={() => setCurrentTool('circle')}
+                   className="flex flex-col items-center gap-1 h-auto py-2 px-3"
+                 >
+                   <Circle size={16} />
+                   <span className="text-xs">원</span>
                  </Button>
                </div>
 
@@ -1026,7 +1212,9 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm`}>
                  {currentTool === 'pen' ? '펜으로 필기' : 
                   currentTool === 'highlighter' ? '하이라이터로 강조' :
-                  currentTool === 'eraser' ? '지우개로 지우기' : '도구 선택'}
+                  currentTool === 'eraser' ? '지우개로 지우기' :
+                  currentTool === 'rectangle' ? '드래그해서 사각형 그리기' :
+                  currentTool === 'circle' ? '드래그해서 원 그리기' : '도구 선택'}
                </span>
              </div>
           </div>
