@@ -552,6 +552,9 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
   // 로그인 상태 디버깅
   console.log('MainPage - isLoggedIn:', isLoggedIn);
   console.log('MainPage - userEmail:', userEmail);
+  
+  // 드래그&드롭 상태
+  const [isDragging, setIsDragging] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [documentsExpanded, setDocumentsExpanded] = useState(true);
@@ -755,7 +758,7 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     });
   };
 
-  const handleDrop = (targetFolderId: string, draggedItem: any) => {
+  const handleDragDrop = (targetFolderId: string, draggedItem: any) => {
     if (draggedItem.id === targetFolderId) {
       toast.error('폴더를 자기 자신으로 이동할 수 없습니다.');
       return;
@@ -1083,6 +1086,83 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     setNewFolderName('');
   };
 
+  // 드래그&드롭 핸들러
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 메인 컨테이너를 완전히 벗어났을 때만 isDragging을 false로
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    if (
+      e.clientX < rect.left ||
+      e.clientX > rect.right ||
+      e.clientY < rect.top ||
+      e.clientY > rect.bottom
+    ) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    if (!isLoggedIn) {
+      toast.error('로그인이 필요합니다.');
+      return;
+    }
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    // PDF 파일만 필터링
+    const pdfFiles = files.filter(file => file.type === 'application/pdf');
+    const nonPdfFiles = files.filter(file => file.type !== 'application/pdf');
+
+    // 비PDF 파일이 있으면 경고
+    if (nonPdfFiles.length > 0) {
+      toast.error('PDF 형식의 파일만 업로드 가능합니다!');
+      return;
+    }
+
+    if (pdfFiles.length === 0) {
+      toast.error('PDF 형식의 파일만 업로드 가능합니다!');
+      return;
+    }
+
+    // 각 PDF 파일 업로드
+    for (const file of pdfFiles) {
+      // 파일 크기 검증 (500MB)
+      const maxSize = 500 * 1024 * 1024; // 500MB
+      if (file.size > maxSize) {
+        const sizeInMB = Math.round(file.size / (1024 * 1024));
+        toast.error(`파일 크기가 500MB를 초과합니다. (파일: ${file.name}, 크기: ${sizeInMB}MB)`);
+        continue;
+      }
+      
+      // 파일 크기 경고 (100MB 이상시)
+      const warningSize = 100 * 1024 * 1024; // 100MB
+      if (file.size > warningSize) {
+        const sizeInMB = Math.round(file.size / (1024 * 1024));
+        toast.warning(`큰 파일입니다 (${file.name}: ${sizeInMB}MB). 업로드에 시간이 걸릴 수 있습니다.`);
+      }
+      
+      await uploadPdfFile(file);
+    }
+  };
+
   // 검색 필터링
   const filteredDocuments = getCurrentDocuments().filter(doc => {
     if (!searchQuery) return true;
@@ -1238,7 +1318,7 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
                         <DroppableFolder
                           folder={doc}
                           isDarkMode={isDarkMode}
-                          onDrop={(draggedItem) => handleDrop(doc.id, draggedItem)}
+                          onDrop={(draggedItem) => handleDragDrop(doc.id, draggedItem)}
                           onClick={() => {
                             toggleFolderExpansion(doc.id);
                             setCurrentFolder(doc.id);
@@ -1318,7 +1398,13 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
       </div>
 
       {/* 메인 콘텐츠 */}
-      <div className="flex-1 flex flex-col relative z-[100000]">
+      <div 
+        className="flex-1 flex flex-col relative z-[100000]"
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {/* 상단 헤더 */}
         <div className={`flex items-center justify-between p-4 md:p-6 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
           <div className="flex items-center gap-4">
@@ -1417,7 +1503,24 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
         </div>
 
         {/* 메인 콘텐츠 그리드 */}
-        <div className="flex-1 p-4 md:p-6 overflow-y-auto overflow-x-visible">
+        <div className="flex-1 p-4 md:p-6 overflow-y-auto overflow-x-visible relative">
+          {/* 드래그 오버레이 */}
+          {isDragging && (
+            <div className="absolute inset-0 bg-blue-500 bg-opacity-20 border-4 border-blue-400 border-dashed rounded-lg z-50 flex items-center justify-center">
+              <div className="bg-white px-6 py-4 rounded-lg shadow-xl border-2 border-blue-400">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                    <File className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-blue-700 font-semibold text-lg">PDF 파일을 여기에 드롭하세요</p>
+                    <p className="text-blue-600 text-sm">PDF 형식의 파일만 업로드 가능합니다</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6 relative">
             {filteredDocuments.map((doc, index) => (
               <DraggableCard
