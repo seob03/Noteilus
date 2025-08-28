@@ -58,6 +58,11 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
+  // PDF 크기 조정 상태
+  const [pdfScale, setPdfScale] = useState<number>(1);
+  const [pdfDimensions, setPdfDimensions] = useState<{width: number, height: number} | null>(null);
+  const [containerDimensions, setContainerDimensions] = useState<{width: number, height: number}>({width: 0, height: 0});
+  
   // 사이드바 상태 - 상호 배타적
   const [mapSidebarOpen, setMapSidebarOpen] = useState(false);
   const [aiSidebarOpen, setAiSidebarOpen] = useState(false);
@@ -91,6 +96,66 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfViewerRef = useRef<HTMLDivElement>(null);
   const excalidrawRef = useRef<HTMLCanvasElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  
+  // 화면 크기 감지 및 PDF 크기 조정
+  const calculatePdfScale = useCallback(() => {
+    const viewer = pdfViewerRef.current;
+    if (!viewer || !pdfDimensions) return;
+    
+    const viewerRect = viewer.getBoundingClientRect();
+    const availableWidth = viewerRect.width - 40; // 좌우 마진
+    const availableHeight = viewerRect.height - 120; // 상하 마진 (헤더 + 푸터)
+    
+    // 비율에 따른 스케일 계산
+    const widthScale = availableWidth / pdfDimensions.width;
+    const heightScale = availableHeight / pdfDimensions.height;
+    
+    // 위아래가 꽉 차도록 하되, 카드가 잘리지 않도록 비율 선택
+    const newScale = Math.min(widthScale, heightScale);
+    
+    console.log('크기 계산:', {
+      availableWidth,
+      availableHeight,
+      pdfWidth: pdfDimensions.width,
+      pdfHeight: pdfDimensions.height,
+      widthScale,
+      heightScale,
+      newScale,
+      mapSidebarOpen,
+      aiSidebarOpen
+    });
+    
+    setPdfScale(newScale);
+  }, [pdfDimensions, mapSidebarOpen, aiSidebarOpen]);
+  
+  // 컴포넌트 마운트 및 리사이즈 이벤트
+  useEffect(() => {
+    const handleResize = () => {
+      calculatePdfScale();
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [calculatePdfScale]);
+  
+  // PDF 로드 시 크기 계산
+  useEffect(() => {
+    if (pdfDimensions) {
+      calculatePdfScale();
+    }
+  }, [pdfDimensions, calculatePdfScale]);
+  
+  // 사이드바 상태 변경 시 크기 재계산
+  useEffect(() => {
+    if (pdfDimensions) {
+      // 사이드바 애니메이션 완료 후 크기 재계산
+      const timer = setTimeout(() => {
+        calculatePdfScale();
+      }, 300); // 사이드바 애니메이션 시간과 동일
+      return () => clearTimeout(timer);
+    }
+  }, [mapSidebarOpen, aiSidebarOpen, calculatePdfScale]);
   
   // 캔버스 필기 상태
   const [isDrawing, setIsDrawing] = useState(false);
@@ -1271,9 +1336,17 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                   >
                     <Page
                       pageNumber={currentPage}
-                      width={Math.min(window.innerWidth * 0.5, 600)}
+                      scale={pdfScale}
                       renderTextLayer={false}
                       renderAnnotationLayer={false}
+                      onLoadSuccess={(page) => {
+                        const viewport = page.getViewport({ scale: 1.0 });
+                        setPdfDimensions({
+                          width: viewport.width,
+                          height: viewport.height
+                        });
+                        console.log('PDF 페이지 크기:', { width: viewport.width, height: viewport.height });
+                      }}
                     />
                   </Document>
                   <div className="absolute inset-0 pointer-events-none">
