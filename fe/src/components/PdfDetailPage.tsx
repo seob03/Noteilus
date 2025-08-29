@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronLeft, Menu, Search, X, Pen, Highlighter, Eraser, Square, Circle, Share2, FileEdit, BookOpen, Settings as SettingsIcon, Download, Map, Languages, Copy } from 'lucide-react';
+import { ChevronLeft, Menu, Search, X, Pen, Highlighter, Eraser, Square, Circle, Share2, FileEdit, BookOpen, Settings as SettingsIcon, Download, Map, Languages, Copy, Type } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -29,8 +29,19 @@ interface DrawingStroke {
   points: DrawingPath[];
   color: string;
   size: number;
-  tool: 'pen' | 'highlighter' | 'eraser' | 'rectangle' | 'circle' | 'line';
+  tool: 'pen' | 'highlighter' | 'eraser' | 'rectangle' | 'circle' | 'line' | 'text';
+  text?: string; // 텍스트 메모용
 }
+
+interface TextMemo {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  fontSize: number;
+}
+
 
 const COLORS = ['#000000', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff'];
 const SIZES = [2, 5, 10];
@@ -167,7 +178,17 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [previewShape, setPreviewShape] = useState<DrawingPath | null>(null);
   
   // 필기 도구 상태
-  const [currentTool, setCurrentTool] = useState<'pen' | 'highlighter' | 'eraser' | 'rectangle' | 'circle' | 'line'>('pen');
+  const [currentTool, setCurrentTool] = useState<'pen' | 'highlighter' | 'eraser' | 'rectangle' | 'circle' | 'line' | 'text'>('pen');
+  
+  // 텍스트 메모 상태
+  const [textMemos, setTextMemos] = useState<{ [key: number]: TextMemo[] }>({});
+  const [isEditingText, setIsEditingText] = useState(false);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [textInput, setTextInput] = useState('');
+  const [textPosition, setTextPosition] = useState<{x: number, y: number} | null>(null);
+  const [fontSize, setFontSize] = useState(16);
+  
+  
   const [currentColor, setCurrentColor] = useState('#000000');
   const [currentSize, setCurrentSize] = useState(2);
   
@@ -233,6 +254,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   useEffect(() => {
     loadPdf();
     loadDrawingDataFromServer();
+    loadTextMemosFromServer();
   }, [pdfId]);
   
   // 채팅 자동 스크롤을 위한 ref
@@ -378,6 +400,32 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     }
   };
 
+  // 텍스트 메모를 서버에 저장하는 함수
+  const saveTextMemosToServer = async (pageId: number, memos: TextMemo[]) => {
+    try {
+      const response = await fetch(`/api/pdfs/${pdfId}/textmemos`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          pageNumber: pageId,
+          textMemos: memos
+        })
+      });
+
+      if (!response.ok) {
+        console.error('텍스트 메모 저장 실패:', response.status);
+        return;
+      }
+
+      console.log(`페이지 ${pageId} 텍스트 메모 서버 저장 완료`);
+    } catch (error) {
+      console.error('텍스트 메모 저장 에러:', error);
+    }
+  };
+
   // 서버에서 필기 데이터 로드
   const loadDrawingDataFromServer = async () => {
     try {
@@ -409,6 +457,29 @@ Solves the problem where Gradient Descent shows different speeds depending on we
       }
     } catch (error) {
       console.error('필기 데이터 로드 에러:', error);
+    }
+  };
+
+  // 서버에서 텍스트 메모 로드
+  const loadTextMemosFromServer = async () => {
+    try {
+      const response = await fetch(`/api/pdfs/${pdfId}/textmemos`, {
+        method: 'GET',
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        console.error('텍스트 메모 로드 실패:', response.status);
+        return;
+      }
+
+      const result = await response.json();
+      if (result.success && result.textMemos) {
+        console.log('서버에서 텍스트 메모 로드 완료:', result.textMemos);
+        setTextMemos(result.textMemos);
+      }
+    } catch (error) {
+      console.error('텍스트 메모 로드 에러:', error);
     }
   };
 
@@ -580,7 +651,37 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     
     setIsDrawing(true);
     
-    if (currentTool === 'rectangle' || currentTool === 'circle') {
+    if (currentTool === 'text') {
+      // 기존 텍스트 메모 클릭 체크 (편집을 위해)
+      const currentPageMemos = textMemos[currentPage] || [];
+      const clickedMemo = currentPageMemos.find(memo => {
+        const padding = 4;
+        const canvas = excalidrawRef.current;
+        if (!canvas) return false;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return false;
+        
+        ctx.font = `${memo.fontSize}px Arial`;
+        const textMetrics = ctx.measureText(memo.text);
+        const textHeight = memo.fontSize;
+        
+        return x >= memo.x - padding &&
+               x <= memo.x + textMetrics.width + padding &&
+               y >= memo.y - padding &&
+               y <= memo.y + textHeight + padding;
+      });
+      
+      if (clickedMemo && e.detail === 2) {
+        // 더블클릭으로 기존 텍스트 편집
+        handleTextEdit(clickedMemo.id);
+      } else {
+        // 새 텍스트 메모 추가
+        setTextPosition({ x, y });
+        setIsEditingText(true);
+        setTextInput('');
+      }
+    } else if (currentTool === 'rectangle' || currentTool === 'circle') {
       // 도형 그리기: 시작점 설정
       setStartPoint({ x, y });
       setPreviewShape({ x, y });
@@ -611,7 +712,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     }
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e?: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isDrawing) return;
     
     if (currentTool === 'rectangle' || currentTool === 'circle') {
@@ -835,6 +936,43 @@ Solves the problem where Gradient Descent shows different speeds depending on we
         ctx.stroke();
       }
     }
+    
+    // 텍스트 메모들 렌더링
+    const currentPageMemos = textMemos[currentPage] || [];
+    currentPageMemos.forEach(memo => {
+      ctx.font = `${memo.fontSize}px Arial`;
+      ctx.fillStyle = memo.color;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      
+      // 텍스트 배경 (선택사항)
+      const textMetrics = ctx.measureText(memo.text);
+      const textHeight = memo.fontSize;
+      const padding = 4;
+      
+      // 반투명 배경
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.fillRect(
+        memo.x - padding, 
+        memo.y - padding, 
+        textMetrics.width + padding * 2, 
+        textHeight + padding * 2
+      );
+      
+      // 텍스트 그리기
+      ctx.fillStyle = memo.color;
+      ctx.fillText(memo.text, memo.x, memo.y);
+      
+      // 테두리 (편집 가능함을 나타내기 위해)
+      ctx.strokeStyle = memo.color;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(
+        memo.x - padding, 
+        memo.y - padding, 
+        textMetrics.width + padding * 2, 
+        textHeight + padding * 2
+      );
+    });
   };
 
   // 전체 캔버스 지우기
@@ -914,10 +1052,102 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     handlePageInputSubmit({ preventDefault: () => {} } as React.FormEvent);
   };
 
+  // 텍스트 메모 관련 함수들
+  const handleTextSubmit = () => {
+    if (!textInput.trim() || !textPosition) return;
+    
+    const newMemo: TextMemo = {
+      id: `text_${Date.now()}`,
+      x: textPosition.x,
+      y: textPosition.y,
+      text: textInput.trim(),
+      color: currentColor,
+      fontSize: fontSize
+    };
+    
+    setTextMemos(prev => ({
+      ...prev,
+      [currentPage]: [...(prev[currentPage] || []), newMemo]
+    }));
+    
+    // 입력 상태 초기화
+    setIsEditingText(false);
+    setTextInput('');
+    setTextPosition(null);
+    
+    // 캔버스 다시 그리기
+    setTimeout(() => drawPath(), 10);
+  };
+
+  const handleTextCancel = () => {
+    setIsEditingText(false);
+    setTextInput('');
+    setTextPosition(null);
+    setEditingTextId(null);
+  };
+
+  const handleTextEdit = (memoId: string) => {
+    const memo = textMemos[currentPage]?.find(m => m.id === memoId);
+    if (memo) {
+      setTextInput(memo.text);
+      setTextPosition({ x: memo.x, y: memo.y });
+      setIsEditingText(true);
+      setEditingTextId(memoId);
+    }
+  };
+
+  const handleTextUpdate = () => {
+    if (!editingTextId || !textInput.trim()) return;
+    
+    setTextMemos(prev => ({
+      ...prev,
+      [currentPage]: prev[currentPage]?.map(memo =>
+        memo.id === editingTextId
+          ? { ...memo, text: textInput.trim() }
+          : memo
+      ) || []
+    }));
+    
+    handleTextCancel();
+    
+    // 캔버스 다시 그리기
+    setTimeout(() => drawPath(), 10);
+  };
+
+  const handleTextDelete = (memoId: string) => {
+    setTextMemos(prev => ({
+      ...prev,
+      [currentPage]: prev[currentPage]?.filter(memo => memo.id !== memoId) || []
+    }));
+    
+    // 캔버스 다시 그리기
+    setTimeout(() => drawPath(), 10);
+  };
+
+
   // 현재 페이지가 변경될 때 입력값도 동기화
   useEffect(() => {
     setPageInputValue(currentPage.toString());
   }, [currentPage]);
+  
+  // 텍스트 메모나 페이지 변경 시 캔버스 다시 그리기
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      drawPath();
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [textMemos, currentPage, strokes]);
+
+  // 텍스트 메모 자동 저장
+  useEffect(() => {
+    if (!pdfId) return;
+    
+    const timeoutId = setTimeout(() => {
+      saveTextMemosToServer(currentPage, textMemos[currentPage] || []);
+    }, 500); // 500ms 지연
+
+    return () => clearTimeout(timeoutId);
+  }, [textMemos, currentPage, pdfId]);
 
   // AI 메시지 전송 핸들러
   const handleSendAiMessage = () => {
@@ -1176,6 +1406,15 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                    <Circle size={16} />
                    <span className="text-xs">원</span>
                  </Button>
+                 <Button
+                   variant={currentTool === 'text' ? 'default' : 'ghost'}
+                   size="sm"
+                   onClick={() => setCurrentTool('text')}
+                   className="flex flex-col items-center gap-1 h-auto py-2 px-3"
+                 >
+                   <Type size={16} />
+                   <span className="text-xs">텍스트</span>
+                 </Button>
                </div>
 
               {/* 색상 선택 */}
@@ -1279,7 +1518,8 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                   currentTool === 'highlighter' ? '하이라이터로 강조' :
                   currentTool === 'eraser' ? '지우개로 지우기' :
                   currentTool === 'rectangle' ? '드래그해서 사각형 그리기' :
-                  currentTool === 'circle' ? '드래그해서 원 그리기' : '도구 선택'}
+                  currentTool === 'circle' ? '드래그해서 원 그리기' :
+                  currentTool === 'text' ? '클릭해서 텍스트 메모 추가' : '도구 선택'}
                </span>
              </div>
           </div>
@@ -1370,6 +1610,93 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                       </div>
                     )}
                   </div>
+                  
+                  {/* 텍스트 입력 오버레이 */}
+                  {isEditingText && textPosition && (
+                    <div 
+                      className={`absolute z-50 ${isDarkMode ? 'bg-[#2A2A2E] border-gray-600' : 'bg-white border-gray-300'} border rounded-lg shadow-lg p-3 min-w-[220px]`}
+                      style={{
+                        left: textPosition.x,
+                        top: textPosition.y,
+                        transform: 'translate(10px, -10px)' // 클릭 위치에서 약간 오프셋
+                      }}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                            텍스트 메모
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={fontSize}
+                              onChange={(e) => setFontSize(Number(e.target.value))}
+                              className={`text-xs border rounded px-1 py-0.5 ${isDarkMode ? 'bg-[#1A1A1E] border-gray-600 text-gray-200' : 'bg-white border-gray-300 text-gray-700'}`}
+                            >
+                              <option value={12}>12px</option>
+                              <option value={14}>14px</option>
+                              <option value={16}>16px</option>
+                              <option value={18}>18px</option>
+                              <option value={20}>20px</option>
+                            </select>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleTextCancel}
+                              className={`p-1 h-auto ${isDarkMode ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                            >
+                              <X size={14} />
+                            </Button>
+                          </div>
+                        </div>
+                        
+                        <textarea
+                          value={textInput}
+                          onChange={(e) => setTextInput(e.target.value)}
+                          placeholder="메모를 입력하세요..."
+                          className={`w-full px-2 py-1 text-sm border rounded resize-none ${
+                            isDarkMode 
+                              ? 'bg-[#1A1A1E] border-gray-600 text-gray-200 placeholder:text-gray-400' 
+                              : 'bg-white border-gray-300 text-gray-700 placeholder:text-gray-500'
+                          }`}
+                          rows={3}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              editingTextId ? handleTextUpdate() : handleTextSubmit();
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              handleTextCancel();
+                            }
+                          }}
+                        />
+                        
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleTextCancel}
+                            className={`text-xs ${isDarkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                          >
+                            취소
+                          </Button>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={editingTextId ? handleTextUpdate : handleTextSubmit}
+                            disabled={!textInput.trim()}
+                            className="text-xs bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {editingTextId ? '수정' : '추가'}
+                          </Button>
+                        </div>
+                        
+                        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-center`}>
+                          Enter: 추가 | Shift+Enter: 줄바꿈 | Esc: 취소
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   </div>
                    
            {/* 페이지 정보 - PDF 아래에 위치 */}

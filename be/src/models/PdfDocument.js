@@ -58,6 +58,26 @@ class PdfDocument {
     );
     return result;
   }
+
+  // 특정 페이지의 텍스트 메모 저장
+  async savePageTextMemos(pdfId, pageNumber, textMemos) {
+    const result = await this.collection.updateOne(
+      { _id: ObjectId.createFromHexString(pdfId.toString()) },
+      { 
+        $set: { 
+          [`textMemos.${pageNumber}`]: textMemos,
+          lastModified: new Date()
+        } 
+      }
+    );
+    return result;
+  }
+
+  // 텍스트 메모 조회
+  async getTextMemos(pdfId) {
+    const pdf = await this.findById(pdfId);
+    return pdf ? pdf.textMemos || {} : {};
+  }
 }
 
 module.exports = PdfDocument;

@@ -419,6 +419,91 @@ class PdfController {
       res.status(500).json({ error: '필기 데이터 조회에 실패했습니다.' });
     }
   }
+
+  // 텍스트 메모 저장
+  async saveTextMemos(req, res) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: '로그인이 필요합니다.' });
+      }
+
+      const { pdfId } = req.params;
+      const { pageNumber, textMemos } = req.body;
+
+      if (!ObjectId.isValid(pdfId)) {
+        return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
+      }
+
+      if (pageNumber === undefined || !textMemos) {
+        return res.status(400).json({ error: '페이지 번호와 텍스트 메모 데이터가 필요합니다.' });
+      }
+
+      // DB에서 PDF 정보 조회
+      const pdf = await this.pdfDocument.findById(pdfId);
+      
+      if (!pdf) {
+        return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
+      }
+
+      // 권한 확인 (본인의 PDF만 수정 가능)
+      const userId = req.user.googleId || req.user.kakaoId;
+      if (pdf.userId !== userId) {
+        return res.status(403).json({ error: '수정 권한이 없습니다.' });
+      }
+
+      // 텍스트 메모 데이터 저장
+      await this.pdfDocument.savePageTextMemos(pdfId, pageNumber, textMemos);
+
+      res.json({ 
+        success: true, 
+        message: `페이지 ${pageNumber}의 텍스트 메모가 저장되었습니다.` 
+      });
+
+    } catch (error) {
+      console.error('텍스트 메모 저장 에러:', error);
+      res.status(500).json({ error: '텍스트 메모 저장에 실패했습니다.' });
+    }
+  }
+
+  // 텍스트 메모 조회
+  async getTextMemos(req, res) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: '로그인이 필요합니다.' });
+      }
+
+      const { pdfId } = req.params;
+
+      if (!ObjectId.isValid(pdfId)) {
+        return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
+      }
+
+      // DB에서 PDF 정보 조회
+      const pdf = await this.pdfDocument.findById(pdfId);
+      
+      if (!pdf) {
+        return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
+      }
+
+      // 권한 확인 (본인의 PDF만 조회 가능)
+      const userId = req.user.googleId || req.user.kakaoId;
+      if (pdf.userId !== userId) {
+        return res.status(403).json({ error: '조회 권한이 없습니다.' });
+      }
+
+      // 텍스트 메모 데이터 조회
+      const textMemos = await this.pdfDocument.getTextMemos(pdfId);
+
+      res.json({ 
+        success: true, 
+        textMemos: textMemos 
+      });
+
+    } catch (error) {
+      console.error('텍스트 메모 조회 에러:', error);
+      res.status(500).json({ error: '텍스트 메모 조회에 실패했습니다.' });
+    }
+  }
 }
 
 module.exports = { PdfController };
