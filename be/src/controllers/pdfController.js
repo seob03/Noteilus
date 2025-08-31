@@ -216,10 +216,13 @@ class PdfController {
       
       // 프론트엔드에서 필요한 형태로 변환
       const formattedPdfs = pdfs.map(pdf => ({
+        _id: pdf._id.toString(),
         id: pdf._id.toString(),
         name: pdf.fileName,  // 실제 파일명 표시
+        originalName: pdf.fileName,
         type: 'pdf',
         previewImage: undefined,
+        folderId: pdf.folderId || null,
         uploadDate: pdf.uploadDate
       }));
 

@@ -17,6 +17,8 @@ const createCommonAuthRoutes = require('./src/routes/commonAuthRoutes');
 
 // PDF 라우트
 const { createPdfRoutes } = require('./src/routes/pdfRoutes');
+// 폴더 라우트
+const { createFolderRoutes } = require('./src/routes/folderRoutes');
 
 // CORS 설정
 app.use(cors({
@@ -59,6 +61,8 @@ connectDB().then((db) => {
   app.use('/auth', createKakaoAuthRoutes(db));
   // PDF 라우트 설정
   app.use('/api/pdfs', createPdfRoutes(db));
+  // 폴더 라우트 설정
+  app.use('/api/folders', createFolderRoutes(db));
 
   app.listen(process.env.PORT || 8080, () => {
     console.log('API 서버 실행 성공');

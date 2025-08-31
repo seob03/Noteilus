@@ -1,133 +1,264 @@
-import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import React, { useState, useEffect } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { ChevronRight, ChevronDown, Search, Folder } from 'lucide-react';
+import { Label } from './ui/label';
+import { Folder, FileText, Plus, ChevronRight, ChevronDown } from 'lucide-react';
 
-interface Document {
-  id: string;
+interface Folder {
+  _id: string;
   name: string;
-  type: 'pdf' | 'folder';
-  children?: Document[];
+  parentId: string | null;
+  items: Array<{
+    id: string;
+    type: 'pdf' | 'folder';
+    name: string;
+    addedAt: string;
+  }>;
+  itemCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface FolderSelectDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectFolder: (folderId: string | null) => void;
-  documents: Document[];
-  isDarkMode: boolean;
+  title?: string;
+  currentFolderId?: string | null;
 }
 
-export function FolderSelectDialog({ isOpen, onClose, onSelectFolder, documents, isDarkMode }: FolderSelectDialogProps) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [expandedFolders, setExpandedFolders] = useState<string[]>([]);
+const FolderSelectDialog: React.FC<FolderSelectDialogProps> = ({
+  isOpen,
+  onClose,
+  onSelectFolder,
+  title = "폴더 선택",
+  currentFolderId
+}) => {
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(currentFolderId || null);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [newFolderName, setNewFolderName] = useState('');
+  const [showNewFolderInput, setShowNewFolderInput] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
 
-  const toggleFolderExpansion = (folderId: string) => {
-    setExpandedFolders(prev => 
-      prev.includes(folderId)
-        ? prev.filter(id => id !== folderId)
-        : [...prev, folderId]
-    );
+  // 폴더 목록 조회
+  const fetchFolders = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('/api/folders', {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setFolders(data.folders || []);
+      } else {
+        console.error('폴더 목록 조회 실패');
+      }
+    } catch (error) {
+      console.error('폴더 목록 조회 에러:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSelectFolder = (folderId: string | null) => {
-    onSelectFolder(folderId);
+  // 새 폴더 생성
+  const createFolder = async () => {
+    if (!newFolderName.trim()) return;
+
+    try {
+      setCreatingFolder(true);
+      const response = await fetch('/api/folders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: newFolderName.trim(),
+          parentId: selectedFolderId
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setFolders(prev => [...prev, data.folder]);
+        setNewFolderName('');
+        setShowNewFolderInput(false);
+        // 새로 생성된 폴더를 선택
+        setSelectedFolderId(data.folder._id);
+      } else {
+        const errorData = await response.json();
+        alert(errorData.error || '폴더 생성에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('폴더 생성 에러:', error);
+      alert('폴더 생성에 실패했습니다.');
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  // 폴더 확장/축소 토글
+  const toggleFolder = (folderId: string) => {
+    const newExpanded = new Set(expandedFolders);
+    if (newExpanded.has(folderId)) {
+      newExpanded.delete(folderId);
+    } else {
+      newExpanded.add(folderId);
+    }
+    setExpandedFolders(newExpanded);
+  };
+
+  // 폴더 선택
+  const selectFolder = (folderId: string | null) => {
+    setSelectedFolderId(folderId);
+  };
+
+  // 확인 버튼 클릭
+  const handleConfirm = () => {
+    onSelectFolder(selectedFolderId);
     onClose();
   };
 
-  const folders = documents.filter(doc => doc.type === 'folder');
-  const filteredFolders = folders.filter(folder => 
-    folder.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // 폴더 트리 렌더링
+  const renderFolderTree = (parentId: string | null = null, level: number = 0) => {
+    const childFolders = folders.filter(folder => folder.parentId === parentId);
+    
+    return childFolders.map(folder => {
+      const isExpanded = expandedFolders.has(folder._id);
+      const isSelected = selectedFolderId === folder._id;
+      const hasChildren = folders.some(f => f.parentId === folder._id);
 
-  const FolderItem = ({ folder, level = 0 }: { folder: Document; level?: number }) => (
-    <div key={folder.id} style={{ marginLeft: `${level * 20}px` }}>
-      <div
-        className={`flex items-center gap-2 py-2 px-3 rounded cursor-pointer ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} transition-colors`}
-        onClick={() => handleSelectFolder(folder.id)}
-      >
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleFolderExpansion(folder.id);
-          }}
-          className="flex items-center justify-center w-4 h-4"
-        >
-          {folder.children && folder.children.length > 0 ? (
-            expandedFolders.includes(folder.id) ? 
-              <ChevronDown size={14} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} /> : 
-              <ChevronRight size={14} className={isDarkMode ? 'text-gray-400' : 'text-gray-500'} />
-          ) : (
-            <div className="w-4 h-4" />
+      return (
+        <div key={folder._id}>
+          <div
+            className={`flex items-center p-2 hover:bg-gray-100 cursor-pointer rounded ${
+              isSelected ? 'bg-blue-100 border border-blue-300' : ''
+            }`}
+            style={{ paddingLeft: `${level * 20 + 12}px` }}
+            onClick={() => selectFolder(folder._id)}
+          >
+            <div className="flex items-center flex-1">
+              {hasChildren && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleFolder(folder._id);
+                  }}
+                  className="p-1 hover:bg-gray-200 rounded mr-1"
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="w-4 h-4" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4" />
+                  )}
+                </button>
+              )}
+              <Folder className="w-4 h-4 mr-2 text-blue-500" />
+              <span className="flex-1">{folder.name}</span>
+              <span className="text-sm text-gray-500">({folder.itemCount})</span>
+            </div>
+          </div>
+          
+          {isExpanded && hasChildren && (
+            <div>
+              {renderFolderTree(folder._id, level + 1)}
+            </div>
           )}
-        </button>
-        <Folder size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} />
-        <span className={`${isDarkMode ? 'text-[#efefef]' : 'text-gray-700'} text-sm`}>{folder.name}</span>
-      </div>
-      
-      {/* 하위 폴더들 */}
-      {expandedFolders.includes(folder.id) && folder.children && (
-        <div>
-          {folder.children.filter(child => child.type === 'folder').map(subfolder => (
-            <FolderItem key={subfolder.id} folder={subfolder} level={level + 1} />
-          ))}
         </div>
-      )}
-    </div>
-  );
+      );
+    });
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchFolders();
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    setSelectedFolderId(currentFolderId || null);
+  }, [currentFolderId]);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={`${isDarkMode ? 'bg-[#121214] border-gray-600' : 'bg-white border-gray-200'} max-w-md`}>
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className={isDarkMode ? 'text-[#efefef]' : 'text-gray-900'}>
-            이동할 폴더 선택
-          </DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         
         <div className="space-y-4">
-          {/* 검색창 */}
-          <div className="relative">
-            <Search size={16} className={`absolute left-3 top-1/2 transform -translate-y-1/2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
-            <Input
-              type="text"
-              placeholder="폴더 검색..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`pl-10 ${isDarkMode ? 'bg-[#2A2A2E] border-gray-600 text-[#efefef] placeholder:text-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder:text-gray-500'}`}
-            />
-          </div>
-
-          {/* 루트 폴더 옵션 */}
-          <div
-            className={`flex items-center gap-2 py-2 px-3 rounded cursor-pointer ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} transition-colors`}
-            onClick={() => handleSelectFolder(null)}
-          >
-            <div className="w-4 h-4" />
-            <Folder size={16} className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} />
-            <span className={`${isDarkMode ? 'text-[#efefef]' : 'text-gray-700'} text-sm`}>내 문서 (루트)</span>
+          {/* 새 폴더 생성 */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>새 폴더 생성</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowNewFolderInput(!showNewFolderInput)}
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                새 폴더
+              </Button>
+            </div>
+            
+            {showNewFolderInput && (
+              <div className="flex space-x-2">
+                <Input
+                  placeholder="폴더 이름"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && createFolder()}
+                />
+                <Button
+                  size="sm"
+                  onClick={createFolder}
+                  disabled={creatingFolder || !newFolderName.trim()}
+                >
+                  {creatingFolder ? '생성 중...' : '생성'}
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* 폴더 목록 */}
-          <div className="max-h-64 overflow-y-auto space-y-1">
-            {filteredFolders.map(folder => (
-              <FolderItem key={folder.id} folder={folder} />
-            ))}
-          </div>
-
-          {/* 버튼들 */}
-          <div className="flex gap-2 pt-4">
-            <Button
-              variant="outline"
-              onClick={onClose}
-              className={`flex-1 ${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-            >
-              취소
-            </Button>
+          <div className="border rounded-md max-h-64 overflow-y-auto">
+            {loading ? (
+              <div className="p-4 text-center text-gray-500">로딩 중...</div>
+            ) : (
+              <div>
+                {/* 루트 레벨 선택 */}
+                <div
+                  className={`flex items-center p-2 hover:bg-gray-100 cursor-pointer rounded ${
+                    selectedFolderId === null ? 'bg-blue-100 border border-blue-300' : ''
+                  }`}
+                  onClick={() => selectFolder(null)}
+                >
+                  <FileText className="w-4 h-4 mr-2 text-gray-500" />
+                  <span>루트 폴더</span>
+                </div>
+                
+                {/* 폴더 트리 */}
+                {renderFolderTree()}
+              </div>
+            )}
           </div>
         </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            취소
+          </Button>
+          <Button onClick={handleConfirm}>
+            선택
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
-}
+};
+
+export default FolderSelectDialog;

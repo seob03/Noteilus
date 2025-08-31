@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
-import { FolderSelectDialog } from './FolderSelectDialog';
+import FolderSelectDialog from './FolderSelectDialog';
 import { toast } from 'sonner';
 import { Portal } from './Portal'; // 새로 추가
 
@@ -16,6 +16,7 @@ interface Document {
   type: 'pdf' | 'folder';
   children?: Document[];
   previewImage?: string;
+  folderId?: string;
 }
 
 interface BreadcrumbItem {
@@ -586,45 +587,121 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     }
   ]);
 
-  // PDF 목록 불러오기
-  const loadPdfs = async () => {
+  // 문서 목록 불러오기 (PDF + 폴더)
+  const loadDocuments = async () => {
     if (!isLoggedIn) return;
     
     try {
-      const response = await fetch('/api/pdfs', {
+      // PDF 목록 불러오기
+      const pdfResponse = await fetch('/api/pdfs', {
         method: 'GET',
         credentials: 'include'
       });
 
-      if (response.ok) {
-        const pdfs = await response.json();
-        
+      // 폴더 목록 불러오기
+      const folderResponse = await fetch('/api/folders', {
+        method: 'GET',
+        credentials: 'include'
+      });
+
+      const documents: Document[] = [];
+
+      if (pdfResponse.ok) {
+        const pdfs = await pdfResponse.json();
         // PDF 데이터를 Document 형태로 변환
         const pdfDocuments: Document[] = pdfs.map((pdf: any) => ({
-          id: pdf.id,
-          name: pdf.name,
+          id: pdf._id || pdf.id,
+          name: pdf.originalName || pdf.name,
           type: 'pdf' as const,
-          previewImage: undefined
+          previewImage: undefined,
+          folderId: pdf.folderId || null
         }));
-
-        // "추가" 버튼을 가장 앞에 고정
-        setDocuments([{
-          id: 'add',
-          name: '추가',
-          type: 'pdf'
-        }, ...pdfDocuments]);
-      } else {
-        console.error('PDF 목록을 불러올 수 없습니다:', response.status);
+        documents.push(...pdfDocuments);
       }
+
+      if (folderResponse.ok) {
+        const folderData = await folderResponse.json();
+        // 폴더 데이터를 트리 구조로 변환
+        const folderMap = new Map();
+        const rootFolders: Document[] = [];
+
+        // 모든 폴더를 맵에 추가
+        folderData.folders.forEach((folder: any) => {
+          folderMap.set(folder._id, {
+            id: folder._id,
+            name: folder.name,
+            type: 'folder' as const,
+            children: []
+          });
+        });
+
+        // 부모-자식 관계 설정
+        folderData.folders.forEach((folder: any) => {
+          const folderDoc = folderMap.get(folder._id);
+          if (folder.parentId) {
+            const parentFolder = folderMap.get(folder.parentId);
+            if (parentFolder) {
+              parentFolder.children.push(folderDoc);
+            }
+          } else {
+            rootFolders.push(folderDoc);
+          }
+        });
+
+        documents.push(...rootFolders);
+      }
+
+      // PDF를 폴더에 분류
+      const pdfsWithFolders = documents.filter(doc => doc.type === 'pdf' && doc.folderId);
+      const pdfsWithoutFolders = documents.filter(doc => doc.type === 'pdf' && !doc.folderId);
+      
+      // 폴더 내부에 PDF 추가
+      pdfsWithFolders.forEach(pdf => {
+        const addToFolder = (folders: Document[]): boolean => {
+          for (const folder of folders) {
+            if (folder.id === pdf.folderId) {
+              if (!folder.children) folder.children = [];
+              folder.children.push(pdf);
+              return true;
+            }
+            if (folder.children && addToFolder(folder.children)) {
+              return true;
+            }
+          }
+          return false;
+        };
+        addToFolder(documents.filter(doc => doc.type === 'folder'));
+      });
+
+      // 폴더가 없는 PDF들만 루트에 추가
+      const finalDocuments = [
+        ...documents.filter(doc => doc.type === 'folder'),
+        ...pdfsWithoutFolders
+      ];
+
+      console.log('로드된 문서 구조:', {
+        totalPdfs: documents.filter(doc => doc.type === 'pdf').length,
+        pdfsWithFolders: pdfsWithFolders.length,
+        pdfsWithoutFolders: pdfsWithoutFolders.length,
+        folders: documents.filter(doc => doc.type === 'folder').length,
+        finalDocuments: finalDocuments.length
+      });
+
+      // "추가" 버튼을 가장 앞에 고정
+      setDocuments([{
+        id: 'add',
+        name: '추가',
+        type: 'pdf'
+      }, ...finalDocuments]);
     } catch (error) {
-      console.error('PDF 목록 불러오기 에러:', error);
+      console.error('문서 목록 불러오기 에러:', error);
     }
   };
 
-  // 로그인 상태가 변경될 때 PDF 목록 불러오기
+  // 로그인 상태가 변경될 때 문서 목록 불러오기
   useEffect(() => {
     if (isLoggedIn) {
-      loadPdfs();
+      loadDocuments();
     } else {
       // 로그아웃 시 문서 목록 초기화
       setDocuments([{
@@ -758,16 +835,38 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     });
   };
 
-  const handleDragDrop = (targetFolderId: string, draggedItem: any) => {
+  const handleDragDrop = async (targetFolderId: string, draggedItem: any) => {
     if (draggedItem.id === targetFolderId) {
       toast.error('폴더를 자기 자신으로 이동할 수 없습니다.');
       return;
     }
 
     if (draggedItem.type === 'pdf') {
-      moveDocument(draggedItem.id, targetFolderId);
-      const targetFolder = documents.find(doc => doc.id === targetFolderId);
-      toast.success(`"${draggedItem.name || '문서'}"를 "${targetFolder?.name || '폴더'}"로 이동했습니다.`);
+      try {
+        // 백엔드 API 호출하여 PDF를 폴더에 추가
+        const response = await fetch(`/api/folders/${targetFolderId}/pdfs`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            pdfId: draggedItem.id
+          })
+        });
+
+        if (response.ok) {
+          moveDocument(draggedItem.id, targetFolderId);
+          const targetFolder = documents.find(doc => doc.id === targetFolderId);
+          toast.success(`"${draggedItem.name || '문서'}"를 "${targetFolder?.name || '폴더'}"로 이동했습니다.`);
+        } else {
+          const errorData = await response.json();
+          toast.error(errorData.error || '파일 이동에 실패했습니다.');
+        }
+      } catch (error) {
+        console.error('파일 이동 에러:', error);
+        toast.error('파일 이동에 실패했습니다.');
+      }
     }
   };
 
@@ -795,7 +894,7 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     });
   };
 
-  const handleMainDrop = (draggedItem: any, dropResult: any) => {
+  const handleMainDrop = async (draggedItem: any, dropResult: any) => {
     if (!dropResult) return;
 
     if (dropResult.folderId) {
@@ -804,7 +903,33 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
         return;
       }
 
-      if (draggedItem.type === 'pdf' || draggedItem.type === 'folder') {
+      if (draggedItem.type === 'pdf') {
+        try {
+          // 백엔드 API 호출하여 PDF를 폴더에 추가
+          const response = await fetch(`/api/folders/${dropResult.folderId}/pdfs`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+              pdfId: draggedItem.id
+            })
+          });
+
+          if (response.ok) {
+            moveDocument(draggedItem.id, dropResult.folderId);
+            toast.success(`"${draggedItem.name}"을(를) "${dropResult.folderName}"(으)로 이동했습니다.`);
+          } else {
+            const errorData = await response.json();
+            toast.error(errorData.error || '파일 이동에 실패했습니다.');
+          }
+        } catch (error) {
+          console.error('파일 이동 에러:', error);
+          toast.error('파일 이동에 실패했습니다.');
+        }
+      } else if (draggedItem.type === 'folder') {
+        // 폴더 이동은 나중에 구현
         moveDocument(draggedItem.id, dropResult.folderId);
         toast.success(`"${draggedItem.name}"을(를) "${dropResult.folderName}"(으)로 이동했습니다.`);
       }
@@ -825,30 +950,77 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     setEditingName(e.target.value);
   };
 
-  const handleNameSubmit = () => {
+  // 문서 ID로 문서 찾기 헬퍼 함수
+  const findDocumentById = (docs: Document[], id: string): Document | null => {
+    for (const doc of docs) {
+      if (doc.id === id) {
+        return doc;
+      }
+      if (doc.children) {
+        const found = findDocumentById(doc.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const handleNameSubmit = async () => {
     if (!editingId || !editingName.trim()) {
       setEditingId(null);
       return;
     }
 
-    setDocuments(prevDocs => {
-      const updateName = (docs: Document[]): Document[] => {
-        return docs.map(doc => {
-          if (doc.id === editingId) {
-            return { ...doc, name: editingName.trim() };
-          }
-          if (doc.children) {
-            return { ...doc, children: updateName(doc.children) };
-          }
-          return doc;
-        });
-      };
-      return updateName(prevDocs);
-    });
+    try {
+      // 편집 중인 문서가 폴더인지 확인
+      const editingDoc = findDocumentById(documents, editingId);
+      if (!editingDoc) {
+        setEditingId(null);
+        return;
+      }
 
-    toast.success('이름이 변경되었습니다.');
-    setEditingId(null);
-    setEditingName('');
+      if (editingDoc.type === 'folder') {
+        // 폴더 이름 변경 API 호출
+        const response = await fetch(`/api/folders/${editingId}/rename`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            name: editingName.trim()
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          toast.error(errorData.error || '폴더 이름 변경에 실패했습니다.');
+          return;
+        }
+      }
+      // PDF 이름 변경은 나중에 구현 (현재는 클라이언트에서만 변경)
+
+      setDocuments(prevDocs => {
+        const updateName = (docs: Document[]): Document[] => {
+          return docs.map(doc => {
+            if (doc.id === editingId) {
+              return { ...doc, name: editingName.trim() };
+            }
+            if (doc.children) {
+              return { ...doc, children: updateName(doc.children) };
+            }
+            return doc;
+          });
+        };
+        return updateName(prevDocs);
+      });
+
+      toast.success('이름이 변경되었습니다.');
+      setEditingId(null);
+      setEditingName('');
+    } catch (error) {
+      console.error('이름 변경 에러:', error);
+      toast.error('이름 변경에 실패했습니다.');
+    }
   };
 
   const handleNameKeyPress = (e: React.KeyboardEvent) => {
@@ -864,16 +1036,100 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     handleNameSubmit();
   };
 
-  const handleMoveSelectedDocuments = (targetFolderId: string | null) => {
+  // 폴더 삭제
+  const handleDeleteFolder = async (folderId: string, folderName: string) => {
+    if (!confirm(`"${folderName}" 폴더를 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/folders/${folderId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+
+      if (response.ok) {
+        // 문서 목록에서 폴더 제거
+        setDocuments(prevDocs => {
+          const removeFolder = (docs: Document[]): Document[] => {
+            return docs.filter(doc => {
+              if (doc.id === folderId) {
+                return false; // 폴더 제거
+              }
+              if (doc.children) {
+                doc.children = removeFolder(doc.children);
+              }
+              return true;
+            });
+          };
+          return removeFolder(prevDocs);
+        });
+
+        toast.success(`"${folderName}" 폴더가 삭제되었습니다.`);
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.error || '폴더 삭제에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('폴더 삭제 에러:', error);
+      toast.error('폴더 삭제에 실패했습니다.');
+    }
+  };
+
+  const handleMoveSelectedDocuments = async (targetFolderId: string | null) => {
     const targetName = targetFolderId ? documents.find(doc => doc.id === targetFolderId)?.name : '내 문서';
     
-    selectedDocuments.forEach(docId => {
-      moveDocument(docId, targetFolderId);
-    });
+    try {
+      // 선택된 문서들을 순차적으로 이동
+      for (const docId of selectedDocuments) {
+        const doc = findDocumentById(documents, docId);
+        if (doc && doc.type === 'pdf') {
+          if (targetFolderId) {
+            // 폴더로 이동
+            const response = await fetch(`/api/folders/${targetFolderId}/pdfs`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              credentials: 'include',
+              body: JSON.stringify({
+                pdfId: docId
+              })
+            });
 
-    toast.success(`${selectedDocuments.length}개 문서를 "${targetName}"로 이동했습니다.`);
-    setSelectedDocuments([]);
-    setSelectionMode(false);
+            if (!response.ok) {
+              const errorData = await response.json();
+              toast.error(`${doc.name}: ${errorData.error || '이동에 실패했습니다.'}`);
+              continue;
+            }
+          } else {
+            // 루트로 이동 (폴더에서 제거)
+            const currentDoc = findDocumentById(documents, docId);
+            if (currentDoc && currentDoc.folderId) {
+              const response = await fetch(`/api/folders/${currentDoc.folderId}/pdfs/${docId}`, {
+                method: 'DELETE',
+                credentials: 'include'
+              });
+
+              if (!response.ok) {
+                const errorData = await response.json();
+                toast.error(`${doc.name}: ${errorData.error || '이동에 실패했습니다.'}`);
+                continue;
+              }
+            }
+          }
+          
+          moveDocument(docId, targetFolderId);
+        }
+      }
+
+      toast.success(`${selectedDocuments.length}개 문서를 "${targetName}"로 이동했습니다.`);
+      setSelectedDocuments([]);
+      setSelectionMode(false);
+    } catch (error) {
+      console.error('문서 이동 에러:', error);
+      toast.error('문서 이동에 실패했습니다.');
+    }
   };
 
   const toggleDocumentSelection = (id: string) => {
@@ -899,6 +1155,7 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
   const getCurrentDocuments = () => {
     if (currentFolder) {
       const folder = documents.find(doc => doc.id === currentFolder);
+      console.log('현재 폴더:', currentFolder, '폴더 정보:', folder);
       return folder?.children || [];
     }
     return documents;
@@ -915,7 +1172,7 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     return [{ text: '내 문서', action: null, folderId: null }];
   };
 
-  const handleBreadcrumbDrop = (targetFolderId: string | null, draggedItem: any) => {
+  const handleBreadcrumbDrop = async (targetFolderId: string | null, draggedItem: any) => {
     if (draggedItem.id === targetFolderId) {
       toast.error('폴더를 자기 자신으로 이동할 수 없습니다.');
       return;
@@ -923,7 +1180,60 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
 
     const targetName = targetFolderId ? documents.find(doc => doc.id === targetFolderId)?.name : '내 문서';
     
-    if (draggedItem.type === 'pdf' || draggedItem.type === 'folder') {
+    if (draggedItem.type === 'pdf') {
+      if (targetFolderId) {
+        try {
+          // 백엔드 API 호출하여 PDF를 폴더에 추가
+          const response = await fetch(`/api/folders/${targetFolderId}/pdfs`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+              pdfId: draggedItem.id
+            })
+          });
+
+          if (response.ok) {
+            moveDocument(draggedItem.id, targetFolderId);
+            toast.success(`"${draggedItem.name}"을(를) "${targetName}"(으)로 이동했습니다.`);
+          } else {
+            const errorData = await response.json();
+            toast.error(errorData.error || '파일 이동에 실패했습니다.');
+          }
+        } catch (error) {
+          console.error('파일 이동 에러:', error);
+          toast.error('파일 이동에 실패했습니다.');
+        }
+      } else {
+        // 루트로 이동 (폴더에서 제거)
+        try {
+          const currentDoc = findDocumentById(documents, draggedItem.id);
+          if (currentDoc && currentDoc.folderId) {
+            const response = await fetch(`/api/folders/${currentDoc.folderId}/pdfs/${draggedItem.id}`, {
+              method: 'DELETE',
+              credentials: 'include'
+            });
+
+            if (response.ok) {
+              moveDocument(draggedItem.id, null);
+              toast.success(`"${draggedItem.name}"을(를) "${targetName}"(으)로 이동했습니다.`);
+            } else {
+              const errorData = await response.json();
+              toast.error(errorData.error || '파일 이동에 실패했습니다.');
+            }
+          } else {
+            moveDocument(draggedItem.id, null);
+            toast.success(`"${draggedItem.name}"을(를) "${targetName}"(으)로 이동했습니다.`);
+          }
+        } catch (error) {
+          console.error('파일 이동 에러:', error);
+          toast.error('파일 이동에 실패했습니다.');
+        }
+      }
+    } else if (draggedItem.type === 'folder') {
+      // 폴더 이동은 나중에 구현
       moveDocument(draggedItem.id, targetFolderId);
       toast.success(`"${draggedItem.name}"을(를) "${targetName}"(으)로 이동했습니다.`);
     }
@@ -971,8 +1281,8 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
       const result = await response.json();
       console.log('PDF 업로드 성공:', result);
       
-      // PDF 목록 새로고침
-      await loadPdfs();
+             // 문서 목록 새로고침
+       await loadDocuments();
       toast.dismiss(uploadToast);
       toast.success('PDF가 성공적으로 업로드되었습니다!');
       
@@ -1043,47 +1353,70 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
   };
 
   // 폴더 생성
-  const handleCreateFolder = () => {
+  const handleCreateFolder = async () => {
     if (!newFolderName.trim()) {
       toast.error('폴더 이름을 입력해주세요.');
       return;
     }
 
-    const newFolder: Document = {
-      id: `folder_${Date.now()}`,
-      name: newFolderName.trim(),
-      type: 'folder',
-      children: []
-    };
-
-    if (currentFolder) {
-      // 현재 폴더 내부에 추가
-      setDocuments(prevDocs => {
-        const newDocs = [...prevDocs];
-        const updateFolder = (docs: Document[]): boolean => {
-          for (let doc of docs) {
-            if (doc.id === currentFolder && doc.type === 'folder') {
-              if (!doc.children) doc.children = [];
-              doc.children.push(newFolder);
-              return true;
-            }
-            if (doc.children && updateFolder(doc.children)) {
-              return true;
-            }
-          }
-          return false;
-        };
-        updateFolder(newDocs);
-        return newDocs;
+    try {
+      const response = await fetch('/api/folders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: newFolderName.trim(),
+          parentId: currentFolder || null
+        })
       });
-    } else {
-      // 루트에 추가
-      setDocuments(prevDocs => [...prevDocs, newFolder]);
-    }
 
-    toast.success(`"${newFolderName}" 폴더가 생성되었습니다.`);
-    setShowFolderCreateModal(false);
-    setNewFolderName('');
+      if (response.ok) {
+        const data = await response.json();
+        const newFolder: Document = {
+          id: data.folder._id,
+          name: data.folder.name,
+          type: 'folder',
+          children: []
+        };
+
+        if (currentFolder) {
+          // 현재 폴더 내부에 추가
+          setDocuments(prevDocs => {
+            const newDocs = [...prevDocs];
+            const updateFolder = (docs: Document[]): boolean => {
+              for (let doc of docs) {
+                if (doc.id === currentFolder && doc.type === 'folder') {
+                  if (!doc.children) doc.children = [];
+                  doc.children.push(newFolder);
+                  return true;
+                }
+                if (doc.children && updateFolder(doc.children)) {
+                  return true;
+                }
+              }
+              return false;
+            };
+            updateFolder(newDocs);
+            return newDocs;
+          });
+        } else {
+          // 루트에 추가
+          setDocuments(prevDocs => [...prevDocs, newFolder]);
+        }
+
+        toast.success(`"${newFolderName}" 폴더가 생성되었습니다.`);
+        setShowFolderCreateModal(false);
+        setNewFolderName('');
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.error || '폴더 생성에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('폴더 생성 에러:', error);
+      toast.error('폴더 생성에 실패했습니다.');
+    }
   };
 
   // 드래그&드롭 핸들러
@@ -1315,24 +1648,36 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
                   <div key={doc.id}>
                     {doc.type === 'folder' ? (
                       <>
-                        <DroppableFolder
-                          folder={doc}
-                          isDarkMode={isDarkMode}
-                          onDrop={(draggedItem) => handleDragDrop(doc.id, draggedItem)}
-                          onClick={() => {
-                            toggleFolderExpansion(doc.id);
-                            setCurrentFolder(doc.id);
-                          }}
-                          onNameDoubleClick={handleNameDoubleClick}
-                          editingId={editingId}
-                          editingName={editingName}
-                          onNameChange={handleNameChange}
-                          onNameKeyPress={handleNameKeyPress}
-                          onNameBlur={handleNameBlur}
-                          expandedFolders={expandedFolders}
-                        >
-                          {doc.name}
-                        </DroppableFolder>
+                                               <div className="flex items-center group">
+                         <DroppableFolder
+                           folder={doc}
+                           isDarkMode={isDarkMode}
+                           onDrop={(draggedItem) => handleDragDrop(doc.id, draggedItem)}
+                           onClick={() => {
+                             toggleFolderExpansion(doc.id);
+                             setCurrentFolder(doc.id);
+                           }}
+                           onNameDoubleClick={handleNameDoubleClick}
+                           editingId={editingId}
+                           editingName={editingName}
+                           onNameChange={handleNameChange}
+                           onNameKeyPress={handleNameKeyPress}
+                           onNameBlur={handleNameBlur}
+                           expandedFolders={expandedFolders}
+                         >
+                           {doc.name}
+                         </DroppableFolder>
+                         <button
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             handleDeleteFolder(doc.id, doc.name);
+                           }}
+                           className={`ml-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-100 ${isDarkMode ? 'hover:bg-red-900' : ''}`}
+                           title="폴더 삭제"
+                         >
+                           <Trash2 size={12} className="text-red-500" />
+                         </button>
+                       </div>
                         
                         {/* 폴더 내부 파일들 */}
                         {expandedFolders.includes(doc.id) && doc.children && (
@@ -1532,7 +1877,10 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
                 selectedDocuments={selectedDocuments}
                 onToggleSelection={toggleDocumentSelection}
                 onPdfClick={onPdfClick}
-                onFolderClick={(folder) => setCurrentFolder(folder.id)}
+                onFolderClick={(folder) => {
+                  console.log('폴더 클릭됨:', folder);
+                  setCurrentFolder(folder.id);
+                }}
                 onMainDrop={handleMainDrop}
                 onNameDoubleClick={handleNameDoubleClick}
                 editingId={editingId}
@@ -1552,14 +1900,14 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
         </div>
       </div>
 
-      {/* 폴더 선택 다이얼로그 */}
-      <FolderSelectDialog
-        isOpen={showFolderDialog}
-        onClose={() => setShowFolderDialog(false)}
-        onSelectFolder={handleMoveSelectedDocuments}
-        documents={documents}
-        isDarkMode={isDarkMode}
-      />
+             {/* 폴더 선택 다이얼로그 */}
+       <FolderSelectDialog
+         isOpen={showFolderDialog}
+         onClose={() => setShowFolderDialog(false)}
+         onSelectFolder={handleMoveSelectedDocuments}
+         title="이동할 폴더 선택"
+         currentFolderId={currentFolder}
+       />
 
       {/* 로그인 모달 */}
       <Dialog open={showLoginModal && !isLoggedIn} onOpenChange={setShowLoginModal}>
