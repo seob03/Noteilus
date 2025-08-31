@@ -58,7 +58,7 @@ class PdfController {
 
         try {
           const file = req.file;
-          
+
           // 한국어 파일명 디코딩 처리
           let originalFileName = file.originalname;
           try {
@@ -67,14 +67,14 @@ class PdfController {
           } catch (decodeError) {
             originalFileName = file.originalname;
           }
-          
+
           // 사용자 ID 가져오기 (googleId 또는 kakaoId)
           const userId = req.user.googleId || req.user.kakaoId;
-          
+
           if (!userId) {
             return res.status(400).json({ error: '사용자 ID를 찾을 수 없습니다.' });
           }
-          
+
           // S3에 업로드할 파일명 생성
           const fileName = `pdfs/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}.pdf`;
 
@@ -113,7 +113,7 @@ class PdfController {
                 const errorText = await response.text();
                 console.error('OCR 처리 실패 - 상태:', response.status);
                 console.error('OCR 처리 실패 - 응답:', errorText);
-                
+
                 // JSON 파싱 시도
                 try {
                   const errorJson = JSON.parse(errorText);
@@ -132,7 +132,7 @@ class PdfController {
             // OCR 실패해도 PDF 업로드는 계속 진행
           }
 
-          
+
           // 1단계: DB에 메타데이터 먼저 저장 (상태: 업로드 중)
           const pdfData = {
             userId: userId,
@@ -179,7 +179,7 @@ class PdfController {
 
         } catch (error) {
           console.error('PDF 업로드 에러:', error);
-          
+
           // S3 업로드 실패 시 DB에서 해당 레코드 삭제
           if (pdfId) {
             try {
@@ -188,7 +188,7 @@ class PdfController {
               console.error('DB 레코드 삭제 실패:', deleteError);
             }
           }
-          
+
           res.status(500).json({ error: 'PDF 업로드에 실패했습니다.' });
         }
       });
@@ -207,13 +207,13 @@ class PdfController {
       }
 
       const userId = req.user.googleId || req.user.kakaoId;
-      
+
       if (!userId) {
         return res.status(400).json({ error: '사용자 ID를 찾을 수 없습니다.' });
       }
-      
+
       const pdfs = await this.pdfDocument.findByUserId(userId);
-      
+
       // 프론트엔드에서 필요한 형태로 변환
       const formattedPdfs = pdfs.map(pdf => ({
         _id: pdf._id.toString(),
@@ -249,14 +249,14 @@ class PdfController {
 
       // DB에서 PDF 정보 조회
       const pdf = await this.pdfDocument.findById(pdfId);
-      
+
       if (!pdf) {
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
       }
 
       // 권한 확인 (본인의 PDF만 다운로드 가능)
       const userId = req.user.googleId || req.user.kakaoId;
-      
+
       if (pdf.userId !== userId) {
         return res.status(403).json({ error: '다운로드 권한이 없습니다.' });
       }
@@ -268,14 +268,14 @@ class PdfController {
       };
 
       const s3Object = await s3.getObject(downloadParams).promise();
-      
+
       // PDF 파일 응답 (한국어 파일명 처리)
       res.setHeader('Content-Type', 'application/pdf');
-      
+
       // 한국어 파일명을 위한 UTF-8 인코딩 처리
       const encodedFileName = encodeURIComponent(pdf.fileName);
       res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodedFileName}`);
-      
+
       res.send(s3Object.Body);
 
     } catch (error) {
@@ -299,7 +299,7 @@ class PdfController {
 
       // DB에서 PDF 정보 조회
       const pdf = await this.pdfDocument.findById(pdfId);
-      
+
       if (!pdf) {
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
       }
@@ -349,7 +349,7 @@ class PdfController {
 
       // DB에서 PDF 정보 조회
       const pdf = await this.pdfDocument.findById(pdfId);
-      
+
       if (!pdf) {
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
       }
@@ -363,9 +363,9 @@ class PdfController {
       // 필기 데이터 저장
       await this.pdfDocument.savePageDrawingData(pdfId, pageNumber, drawingData);
 
-      res.json({ 
-        success: true, 
-        message: `페이지 ${pageNumber}의 필기 데이터가 저장되었습니다.` 
+      res.json({
+        success: true,
+        message: `페이지 ${pageNumber}의 필기 데이터가 저장되었습니다.`
       });
 
     } catch (error) {
@@ -389,7 +389,7 @@ class PdfController {
 
       // DB에서 PDF 정보 조회
       const pdf = await this.pdfDocument.findById(pdfId);
-      
+
       if (!pdf) {
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
       }
@@ -403,9 +403,9 @@ class PdfController {
       // 필기 데이터 조회
       const drawingData = await this.pdfDocument.getDrawingData(pdfId);
 
-      res.json({ 
-        success: true, 
-        drawingData: drawingData 
+      res.json({
+        success: true,
+        drawingData: drawingData
       });
 
     } catch (error) {
@@ -434,7 +434,7 @@ class PdfController {
 
       // DB에서 PDF 정보 조회
       const pdf = await this.pdfDocument.findById(pdfId);
-      
+
       if (!pdf) {
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
       }
@@ -448,9 +448,9 @@ class PdfController {
       // 텍스트 메모 데이터 저장
       await this.pdfDocument.savePageTextMemos(pdfId, pageNumber, textMemos);
 
-      res.json({ 
-        success: true, 
-        message: `페이지 ${pageNumber}의 텍스트 메모가 저장되었습니다.` 
+      res.json({
+        success: true,
+        message: `페이지 ${pageNumber}의 텍스트 메모가 저장되었습니다.`
       });
 
     } catch (error) {
@@ -474,7 +474,7 @@ class PdfController {
 
       // DB에서 PDF 정보 조회
       const pdf = await this.pdfDocument.findById(pdfId);
-      
+
       if (!pdf) {
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
       }
@@ -488,9 +488,9 @@ class PdfController {
       // 텍스트 메모 데이터 조회
       const textMemos = await this.pdfDocument.getTextMemos(pdfId);
 
-      res.json({ 
-        success: true, 
-        textMemos: textMemos 
+      res.json({
+        success: true,
+        textMemos: textMemos
       });
 
     } catch (error) {
@@ -503,7 +503,7 @@ class PdfController {
   async getSummary(req, res) {
     try {
       console.log('AI 정리 요청 시작 - PDF ID:', req.params.pdfId);
-      
+
       if (!req.user) {
         console.log('사용자 인증 실패');
         return res.status(401).json({ error: '로그인이 필요합니다.' });
@@ -518,7 +518,7 @@ class PdfController {
 
       // DB에서 PDF 정보 조회
       const pdf = await this.pdfDocument.findById(pdfId);
-      
+
       if (!pdf) {
         console.log('PDF를 찾을 수 없음:', pdfId);
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
@@ -541,8 +541,8 @@ class PdfController {
       const existingSummary = await this.pdfDocument.getAISummary(pdfId);
       if (existingSummary && existingSummary.summary) {
         console.log('기존 저장된 정리 발견 - DB에서 반환');
-        return res.json({ 
-          success: true, 
+        return res.json({
+          success: true,
           summary: existingSummary.summary,
           fromCache: true,
           generatedAt: existingSummary.generatedAt
@@ -561,6 +561,13 @@ class PdfController {
 
       // OpenAI API 호출
       console.log('OpenAI API 호출 시작 - 참고로 5-mini로 호출함');
+
+      // OCR 전처리
+      let processedOCR = pdf.ocrText
+        .replace(/`/g, "'")
+        .replace(/\b([A-Za-z]+)_([A-Za-z0-9]+)\b/g, '$$$1_{$2}$$');
+
+
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -572,29 +579,49 @@ class PdfController {
           messages: [
             {
               role: 'system',
-              content: `Role (역할): 당신은 매우 꼼꼼하고 상세한 문서 정리 전문가입니다. 제공된 OCR 텍스트의 모든 중요한 내용을 놓치지 않고 매우 상세하게 정리해주세요. 대충 정리하지 말고, 원본의 모든 핵심 정보를 포함하여 최대한 자세하고 완벽한 정리를 만들어주세요.
-              Context (맥락): 저는 PDF 문서에서 OCR을 통해 추출된 마크다운 형식의 텍스트를 제공할 것입니다. 이 텍스트는 원본 문서의 구조를 최대한 반영하고 있습니다. 저는 이 원본 텍스트에서 오직 핵심 학습 내용만을 구조적으로 이해하고, 미려한 형식으로 정리된 정리본을 한국어로 받고 싶습니다. 불필요한 정보를 걸러내고 순도 높은 학습 자료를 얻는 것이 주된 목표입니다.
-              Objective (목표): 제공된 OCR 마크다운 텍스트를 매우 상세하고 완벽한 정리본으로 만들어주세요. 절대 대충 정리하지 말고, 원본의 모든 중요한 내용을 놓치지 않고 최대한 자세하게 정리해주세요. 특히 원본 문서의 핵심 학습 내용과 논리적 구조를 최대한 보존하면서 정리하는 것이 중요합니다. 시험이나 학습에 직접적으로 관련 없는 부분(예: 강의 소개, 강사 정보, 강의 날짜, 프로그램 일정, 불필요한 서론 및 결론 등)은 절대 포함하지 말고, 학습 내용만을 선별하여 정리리해주세요. 반드시 모든 중요한 섹션과 세부사항을 포함하여 완전한 정리를 만들어주세요.
-              또한 OCR 내용에서 테이블(표)로 정리된 내용들이 있다면 반드시 모두 정리본에 포함해야합니다.
-              Style (스타일): 정리리본은 전문적이면서도 명료한 문체를 사용해야 합니다. 원본 내용의 의도를 정확하게 전달하면서도, 최대한 자세히 정리해 주세요. 정보의 계층적 중요도를 시각적으로 명확하게 나타내어, 학습자가 빠르게 핵심을 파악할 수 있도록 해주세요.
-              Tone (어조): 정보 전달에 중점을 둔 객관적이고 중립적인 어조를 유지해 주세요. 독자가 내용을 쉽게 신뢰하고 집중할 수 있도록 전문성을 담아 전달해 주세요.
-              Audience (독자): 이 정리본은 해당 분야에 대한 기본적인 이해는 있으나, 원본 문서 전체를 읽을 시간이 부족하며 핵심 학습 내용만을 효율적으로 습득하고자 하는 전문가 또는 학습자를 대상으로 합니다.
-              Response Format (응답 형식): 결과물은 다음 HTML 형식의 지침을 엄격히 준수하여 작성해 주세요:
-                  • 제외할 부분: 학습 내용과 직접 관련 없는 서론, 결론, 강의 목차, 날짜, 프로그램 안내, 강사 소개, 불필요한 예시의 반복과 ![img-1.jpeg](img-1.jpeg)과 같은 이미지 파일 등은 정리본에서 완전히 배제하고, 핵심 정보 위주로 빠르게 확인할 수 있도록 해 주세요.
-                  • 제목 및 소제목: 원본 문서의 목차나 섹션처럼 보이는 핵심 학습 내용 부분은 <h1>, <h2>, <h3> 등의 적절한 HTML 헤딩 태그를 사용하여 계층 구조를 명확히 표현해 주세요. 더 나은 가독성을 위해 헤딩별로 구분을 위한 적절한 줄바꿈을 사용해 주세요.
-                  • 핵심 키워드 강조: <strong>태그를 사용하여 명확하게 강조해 주세요.
-                  • 공식 및 수식: 문서 내에 등장하는 공식이나 수학적 표현은 LaTeX 문법을 사용하여 깔끔하게 렌더링될 수 있도록 해주세요. 블록 수식의 경우 <div class="math-display">$$수식$$</div> 형식으로, 인라인 수식의 경우 <span class="math-inline">$수식$</span> 형식으로 직접 작성해주세요. 특히 수식 내의 특수문자나 기호는 LaTeX 문법에 맞게 정확히 변환해주세요.
-                  • 코드 블록: 만약 원본 텍스트에 프로그래밍 코드가 포함되어 있다면, 해당 코드를 <pre><code class="language-언어명">코드내용</code></pre> 형식으로 정확히 삽입해 주세요. 이는 코드 가독성을 높이고 AI가 코드를 명확히 구분하여 처리하도록 합니다.
-                  • 리스트: 내용 정리 시 <ol> (순서가 있는 리스트)나 <ul> (순서 없는 리스트)를 적절히 활용하여 가독성을 높여주세요. 특히 넘버링 리스트는 작업의 순서나 우선순위를 제시할 때, 불릿 리스트는 복잡한 요구사항을 항목별로 명확히 제시할 때 유용합니다.
-                  • 구조 유지: 원본 텍스트의 논리적 흐름과 섹션별 구조를 최대한 보존하면서 정리해 주세요.
-                  • 불필요한 설명 생략: 학습 내용과 직접 관련 없는 서론, 결론, 강의 목차, 날짜, 프로그램 안내, 강사 소개, 불필요한 예시의 반복 등은 정리본에서 완전히 배제하고, 핵심 정보 위주로 빠르게 확인할 수 있도록 해 주세요.
-                  • 분량: 정리본의 전체 길이는 원본 텍스트의 핵심 정보와 중요도를 고려하되, 필수적인 학습 정보를 충분히 담을 수 있도록 상세하게 작성해 주세요.
-                  • 언어: 결과물은 반드시 한국어로 작성되어야 합니다.
-                  • 참고(중요): 제 질문에 답변 없이 절대 대답하지 말고 요약된 HTML 텍스트만 대답해주세요.`
+              content: `
+Role: 당신은 매우 꼼꼼하고 상세한 문서 정리 전문가입니다.
+제공된 OCR 텍스트의 모든 중요한 내용을 놓치지 않고, 최대한 자세하고 완벽하게 정리해 주세요.
+
+Context: 사용자는 PDF 문서에서 OCR로 추출한 마크다운 텍스트를 제공합니다.
+텍스트는 원본 구조를 최대한 반영하며, 학습 내용만 구조적으로 이해하고 미려하게 정리하는 것이 목표입니다.
+
+Objective: 
+- OCR 텍스트를 상세하고 완벽한 정리본으로 작성
+- 원본 핵심 학습 내용과 논리적 구조 보존
+- 불필요한 정보(강의 소개, 날짜, 프로그램 안내, 반복 예시, 이미지)는 제외
+- 테이블 내용 포함 필수
+
+Style: 전문적이고 명료한 문체 사용. 정보 계층을 시각적으로 명확히 나타내 학습자가 핵심을 빠르게 파악 가능하도록 작성
+
+Tone: 객관적이고 중립적, 전문성 있는 전달
+
+Audience: 기본 이해가 있으나 전체 문서 읽을 시간이 부족한 전문가/학습자
+
+Response Format: 
+- HTML 사용
+  - 제목/소제목: <h1>,<h2>,<h3>
+  - 핵심 키워드: <strong>
+  - 공식/수식: LaTeX 사용
+    - 블록 수식: <div class="math-display">$$수식$$</div>
+    - 인라인 수식: <span class="math-inline">$수식$</span>
+    - 모든 변수명, 기호, 수학적 표현은 반드시 LaTeX로 변환
+    - 예시:
+      - R_acc → <span class="math-inline">$R_{acc}$</span>
+      - n_calls → <span class="math-inline">$n_{calls}$</span>
+      - x_i → <span class="math-inline">$x_{i}$</span>
+  - 코드 블록: <pre><code class="language-언어명">코드</code></pre>
+  - 리스트: <ol>,<ul> 적절히 사용
+- 원본 구조 최대한 보존
+- 학습 내용과 관련 없는 부분 완전히 제외
+- 언어: 한국어
+
+중요: 답변 그대로 렌더링되므로 HTML로만 작성
+`
             },
             {
               role: 'user',
-              content: `요약할 문서: ${pdf.ocrText}`
+              content: `요약할 문서: ${processedOCR}`
             }
           ],
           max_completion_tokens: 20000
@@ -618,8 +645,8 @@ class PdfController {
       await this.pdfDocument.saveAISummary(pdfId, summary);
       console.log('정리 DB 저장 완료');
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         summary: summary,
         fromCache: false
       });
@@ -634,7 +661,7 @@ class PdfController {
   async getTranslation(req, res) {
     try {
       console.log('AI 번역 요청 시작 - PDF ID:', req.params.pdfId);
-      
+
       if (!req.user) {
         console.log('사용자 인증 실패');
         return res.status(401).json({ error: '로그인이 필요합니다.' });
@@ -655,7 +682,7 @@ class PdfController {
 
       // DB에서 PDF 정보 조회
       const pdf = await this.pdfDocument.findById(pdfId);
-      
+
       if (!pdf) {
         console.log('PDF를 찾을 수 없음:', pdfId);
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
@@ -678,8 +705,8 @@ class PdfController {
       const existingTranslation = await this.pdfDocument.getAITranslation(pdfId, targetLanguage);
       if (existingTranslation && existingTranslation.translation) {
         console.log('기존 저장된 번역 발견 - DB에서 반환');
-        return res.json({ 
-          success: true, 
+        return res.json({
+          success: true,
           translation: existingTranslation.translation,
           targetLanguage: targetLanguage,
           fromCache: true,
@@ -708,12 +735,13 @@ class PdfController {
         // 프론트엔드에서 정리본을 전달하지 않은 경우, DB에서 기존 정리본 확인
         console.log('프론트엔드 정리본 없음 - DB에서 기존 정리본 확인');
         let existingSummary = await this.pdfDocument.getAISummary(pdfId);
-        
+
         if (existingSummary && existingSummary.summary) {
           console.log('기존 정리본 발견 - 재사용');
           summary = existingSummary.summary;
         } else {
           console.log('기존 정리본 없음 - 새로 생성')
+
           const summaryResponse = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -725,34 +753,53 @@ class PdfController {
               messages: [
                 {
                   role: 'system',
-                  content: '당신은 문서 정리 전문가입니다. 주어진 문서의 내용과 길이에 맞게 상세하게 정리를 해주세요. 중요한 정보를 누락하지 말고, 문서의 복잡도에 따라 충분히 상세하게 정리리해주세요. 구조화된 형태로 작성해주세요.'
+                  content: `
+Role: 당신은 매우 꼼꼼하고 상세한 문서 정리 전문가입니다.
+제공된 OCR 텍스트의 모든 중요한 내용을 놓치지 않고, 최대한 자세하고 완벽하게 정리해 주세요.
+
+Context: 사용자는 PDF 문서에서 OCR로 추출한 마크다운 텍스트를 제공합니다.
+텍스트는 원본 구조를 최대한 반영하며, 학습 내용만 구조적으로 이해하고 미려하게 정리하는 것이 목표입니다.
+
+Objective: 
+- OCR 텍스트를 상세하고 완벽한 정리본으로 작성
+- 원본 핵심 학습 내용과 논리적 구조 보존
+- 불필요한 정보(강의 소개, 날짜, 프로그램 안내, 반복 예시, 이미지)는 제외
+- 테이블 내용 포함 필수
+
+Style: 전문적이고 명료한 문체 사용. 정보 계층을 시각적으로 명확히 나타내 학습자가 핵심을 빠르게 파악 가능하도록 작성
+
+Tone: 객관적이고 중립적, 전문성 있는 전달
+
+Audience: 기본 이해가 있으나 전체 문서 읽을 시간이 부족한 전문가/학습자
+
+Response Format: 
+- HTML 사용
+  - 제목/소제목: <h1>,<h2>,<h3>
+  - 핵심 키워드: <strong>
+  - 공식/수식: LaTeX 사용
+    - 블록 수식: <div class="math-display">$$수식$$</div>
+    - 인라인 수식: <span class="math-inline">$수식$</span>
+    - 모든 변수명, 기호, 수학적 표현은 반드시 LaTeX로 변환
+    - 예시:
+      - R_acc → <span class="math-inline">$R_{acc}$</span>
+      - n_calls → <span class="math-inline">$n_{calls}$</span>
+      - x_i → <span class="math-inline">$x_{i}$</span>
+  - 코드 블록: <pre><code class="language-언어명">코드</code></pre>
+  - 리스트: <ol>,<ul> 적절히 사용
+- 원본 구조 최대한 보존
+- 학습 내용과 관련 없는 부분 완전히 제외
+- 언어: 한국어
+
+중요: 답변 그대로 렌더링되므로 HTML로만 작성
+`
                 },
                 {
                   role: 'user',
-                  content: `당신은 문서 정리 전문가입니다. 주어진 문서의 내용과 길이에 맞게 상세하게 정리를 해주세요. 중요한 정보를 누락하지 말고, 문서의 복잡도에 따라 충분히 상세하게 정리리해주세요. 구조화된 형태로 작성해주세요. 
-                    Role (역할): 당신은 전문 문서 정리 정리 전문가이자 정보 구조화 전문가입니다. 제공될 OCR 마크다운 텍스트를 분석하여, 원본 문서의 핵심 내용을 정확하고 고급스럽게 정리하되, 특히 학습 목적에 불필요한 서론, 결론, 강의 목차, 날짜, 과정 안내 등 부수적인 정보는 과감히 제외하고 순수한 학습 내용만을 추출하여 가독성 높은 마크다운 형식으로 재구성하는 데 탁월한 능력을 가지고 있습니다.
-                    Context (맥락): 저는 PDF 문서에서 OCR을 통해 추출된 마크다운 형식의 텍스트를 제공할 것입니다. 이 텍스트는 원본 문서의 구조를 최대한 반영하고 있습니다. 저는 이 원본 텍스트에서 오직 핵심 학습 내용만을 구조적으로 이해하고, 미려한 형식으로 정리된 정리본을 한국어로 받고 싶습니다. 불필요한 정보를 걸러내고 순도 높은 학습 자료를 얻는 것이 주된 목표입니다.
-                    Objective (목표): 제공된 OCR 마크다운 텍스트를 매우 상세하고 완벽한 정리본으로 만들어주세요. 절대 대충 정리하지 말고, 원본의 모든 중요한 내용을 놓치지 않고 최대한 자세하게 정리해주세요. 특히 원본 문서의 핵심 학습 내용과 논리적 구조를 최대한 보존하면서 정리하는 것이 중요합니다. 시험이나 학습에 직접적으로 관련 없는 부분(예: 강의 소개, 강사 정보, 강의 날짜, 프로그램 일정, 불필요한 서론 및 결론 등)은 절대 포함하지 말고, 학습 내용만을 선별하여 정리리해주세요. 반드시 모든 중요한 섹션과 세부사항을 포함하여 완전한 정리를 만들어주세요.
-                    또한 OCR 내용 테이블로 정리된 내용이 있다면 반드시 정리본에 포함해야합니다.
-                    Style (스타일): 정리리본은 매우 상세하고 꼼꼼한 문체를 사용해야 합니다. 원본 내용의 의도를 정확하게 전달하면서도, 절대 대충 정리하지 말고 최대한 자세하고 완벽하게 정리해 주세요. 모든 중요한 세부사항을 놓치지 말고, 정보의 계층적 중요도를 시각적으로 명확하게 나타내어, 학습자가 빠르게 핵심을 파악할 수 있도록 해주세요.
-                    Tone (어조): 정보 전달에 중점을 둔 객관적이고 중립적인 어조를 유지해 주세요. 독자가 내용을 쉽게 신뢰하고 집중할 수 있도록 전문성을 담아 전달해 주세요.
-                    Audience (독자): 이 정리본은 해당 분야에 대한 기본적인 이해는 있으나, 원본 문서 전체를 읽을 시간이 부족하며 핵심 학습 내용만을 효율적으로 습득하고자 하는 전문가 또는 학습자를 대상으로 합니다.
-                    Response Format (응답 형식): 결과물은 다음 HTML 형식의 지침을 엄격히 준수하여 작성해 주세요:
-                        • 제외할 부분: 학습 내용과 직접 관련 없는 서론, 결론, 강의 목차, 날짜, 프로그램 안내, 강사 소개, 불필요한 예시의 반복과 ![img-1.jpeg](img-1.jpeg)과 같은 이미지 파일 등은 정리본에서 완전히 배제하고, 핵심 정보 위주로 빠르게 확인할 수 있도록 해 주세요.
-                        • 제목 및 소제목: 원본 문서의 목차나 섹션처럼 보이는 핵심 학습 내용 부분은 <h1>, <h2>, <h3> 등의 적절한 HTML 헤딩 태그를 사용하여 계층 구조를 명확히 표현해 주세요. 더 나은 가독성을 위해 헤딩별로 구분을 위한 적절한 줄바꿈을 사용해 주세요.
-                        • 핵심 키워드 강조: <strong>태그를 사용하여 명확하게 강조해 주세요.
-                        • 공식 및 수식: 문서 내에 등장하는 공식이나 수학적 표현은 LaTeX 문법을 사용하여 깔끔하게 렌더링될 수 있도록 해주세요. 블록 수식의 경우 <div class="math-display">$$수식$$</div> 형식으로, 인라인 수식의 경우 <span class="math-inline">$수식$</span> 형식으로 직접 작성해주세요. 특히 수식 내의 특수문자나 기호는 LaTeX 문법에 맞게 정확히 변환해주세요.
-                        • 코드 블록: 만약 원본 텍스트에 프로그래밍 코드가 포함되어 있다면, 해당 코드를 <pre><code class="language-언어명">코드내용</code></pre> 형식으로 정확히 삽입해 주세요. 이는 코드 가독성을 높이고 AI가 코드를 명확히 구분하여 처리하도록 합니다.
-                        • 리스트: 내용 정리 시 <ol> (순서가 있는 리스트)나 <ul> (순서 없는 리스트)를 적절히 활용하여 가독성을 높여주세요. 특히 넘버링 리스트는 작업의 순서나 우선순위를 제시할 때, 불릿 리스트는 복잡한 요구사항을 항목별로 명확히 제시할 때 유용합니다.
-                        • 구조 유지: 원본 텍스트의 논리적 흐름과 섹션별 구조를 최대한 보존하면서 정리해 주세요.
-                        • 불필요한 설명 생략: 학습 내용과 직접 관련 없는 서론, 결론, 강의 목차, 날짜, 프로그램 안내, 강사 소개, 불필요한 예시의 반복 등은 정리본에서 완전히 배제하고, 핵심 정보 위주로 빠르게 확인할 수 있도록 해 주세요.
-                        • 분량: 정리본의 전체 길이는 원본 텍스트의 핵심 정보와 중요도를 고려하되, 필수적인 학습 정보를 충분히 담을 수 있도록 상세하게 작성해 주세요.
-                        • 언어: 결과물은 반드시 한국어로 작성되어야 합니다. ${pdf.ocrText}`
+                  content: `정리할 문서: ${pdf.ocrText.replace(/`/g, "'")}`
                 }
-               
-              ],
-              max_tokens: 15000,
-              temperature: 0.3
+              ]
+              ,
+              max_tokens: 15000
             })
           });
 
@@ -765,7 +812,7 @@ class PdfController {
           const summaryResult = await summaryResponse.json();
           summary = summaryResult.choices[0].message.content;
           console.log('정리본 생성 완료 - 길이:', summary.length);
-          
+
           // 새로 생성된 정리본을 DB에 저장
           await this.pdfDocument.saveAISummary(pdfId, summary);
           console.log('정리본 DB 저장 완료');
@@ -812,8 +859,8 @@ class PdfController {
       await this.pdfDocument.saveAITranslation(pdfId, targetLanguage, translation);
       console.log('번역 DB 저장 완료');
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         translation: translation,
         targetLanguage: targetLanguage,
         fromCache: false
@@ -829,7 +876,7 @@ class PdfController {
   async getQuiz(req, res) {
     try {
       console.log('AI 퀴즈 요청 시작 - PDF ID:', req.params.pdfId);
-      
+
       if (!req.user) {
         console.log('사용자 인증 실패');
         return res.status(401).json({ error: '로그인이 필요합니다.' });
@@ -844,7 +891,7 @@ class PdfController {
 
       // DB에서 PDF 정보 조회
       const pdf = await this.pdfDocument.findById(pdfId);
-      
+
       if (!pdf) {
         console.log('PDF를 찾을 수 없음:', pdfId);
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
@@ -867,8 +914,8 @@ class PdfController {
       const existingQuiz = await this.pdfDocument.getAIQuiz(pdfId);
       if (existingQuiz && existingQuiz.quiz) {
         console.log('기존 저장된 퀴즈 발견 - DB에서 반환');
-        return res.json({ 
-          success: true, 
+        return res.json({
+          success: true,
           quiz: existingQuiz.quiz,
           fromCache: true,
           generatedAt: existingQuiz.generatedAt
@@ -937,7 +984,7 @@ class PdfController {
         if (cleanContent.endsWith('```')) {
           cleanContent = cleanContent.replace(/\s*```$/, '');
         }
-        
+
         console.log('정리된 퀴즈 내용:', cleanContent.substring(0, 200) + '...');
         quiz = JSON.parse(cleanContent);
         console.log('퀴즈 JSON 파싱 성공');
@@ -953,8 +1000,8 @@ class PdfController {
       await this.pdfDocument.saveAIQuiz(pdfId, quiz);
       console.log('퀴즈 DB 저장 완료');
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         quiz: quiz,
         fromCache: false
       });
