@@ -7,8 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Label } from './ui/label';
 import { Separator } from './ui/separator';
 import { toast } from 'sonner';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { HtmlRenderer } from './ui/html-renderer';
 import { LatexRenderer } from './ui/latex-renderer';
 
 
@@ -60,6 +59,77 @@ const LANGUAGE_OPTIONS = [
 ];
 export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailPageProps) {
   
+  // LaTeX 수식 파싱 헬퍼 함수
+  const parseLatexContent = (content: string) => {
+    // 더 정확한 LaTeX 수식 패턴 매칭
+    // 블록 수식: $$...$$ (줄바꿈 포함 가능)
+    // 인라인 수식: $...$ (줄바꿈 제외)
+    // 독립적인 LaTeX 명령어: \\[4pt], \\, \quad 등
+    // \text{} 명령어가 포함된 수식도 안전하게 처리
+    const parts = content.split(/(\$\$[\s\S]*?\$\$|\$[^$\n]*\$|\\\\\[[^\]]*\]|\\\\[a-zA-Z]+|\\[a-zA-Z]+(?:\{[^}]*\})*)/g);
+    return parts;
+  };
+
+  // LaTeX 수식 유효성 검사 함수
+  const isValidLatex = (math: string) => {
+    // 기본적인 LaTeX 문법 검사
+    // 괄호 짝 맞추기, 명령어 구조 등
+    try {
+      // \text{} 명령어의 중괄호 짝 맞추기 검사
+      const textMatches = math.match(/\\text\{/g);
+      const textEndMatches = math.match(/\}/g);
+      if (textMatches && textEndMatches) {
+        if (textMatches.length > textEndMatches.length) {
+          return false; // 중괄호가 닫히지 않음
+        }
+      }
+      
+      // 독립적인 LaTeX 명령어 검사 (\\[4pt], \\, \quad 등)
+      if (math.match(/^\\\\\[[^\]]*\]$/) || // \\[4pt] 형태
+          math.match(/^\\\\[a-zA-Z]+$/) ||   // \\ 명령어
+          math.match(/^\\[a-zA-Z]+(?:\{[^}]*\})*$/)) { // \quad, \text{} 등
+        return true;
+      }
+      
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // 코드 블록 내 마크다운 포맷팅 처리 함수
+  const processCodeBlockFormatting = (content: string) => {
+    // 볼드 처리 (**text** 또는 __text__)
+    const boldRegex = /\*\*(.*?)\*\*|__(.*?)__/g;
+    const parts: (string | React.ReactElement)[] = [];
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = boldRegex.exec(content)) !== null) {
+      // 매치 이전 텍스트 추가
+      if (match.index > lastIndex) {
+        parts.push(content.slice(lastIndex, match.index));
+      }
+      
+      // 볼드 텍스트 추가
+      const boldText = match[1] || match[2];
+      parts.push(
+        <strong key={`bold-${match.index}`} className={`${isDarkMode ? 'text-white' : 'text-gray-900'} font-semibold ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>
+          {boldText}
+        </strong>
+      );
+      
+      lastIndex = match.index + match[0].length;
+    }
+    
+    // 남은 텍스트 추가
+    if (lastIndex < content.length) {
+      parts.push(content.slice(lastIndex));
+    }
+    
+    return parts.length > 0 ? parts : [content];
+  };
+
   // react-pdf 워커 설정 - public 폴더의 워커 사용
   useEffect(() => {
     // public 폴더의 워커 파일 사용
@@ -2011,216 +2081,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                      </h3>
                      <div className={`${isDarkMode ? 'bg-gradient-to-br from-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-50 to-white'} p-6 rounded-xl border ${isDarkMode ? 'border-gray-700 shadow-lg' : 'border-gray-200 shadow-md'} backdrop-blur-sm`}>
                        <div className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm leading-relaxed prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}>
-                         <ReactMarkdown 
-                           remarkPlugins={[remarkGfm]}
-                           components={{
-                             h1: ({node, ...props}) => {
-                               const content = props.children?.toString() || '';
-                               if (content.includes('$$') || content.includes('$')) {
-                                 const parts = content.split(/(\$\$[^$]*\$\$|\$[^$\n]*\$)/g);
-                                 return (
-                                   <div className="mb-6">
-                                     <h1 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-xl font-bold mb-4 bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent font-black`}>
-                                       {parts.map((part, index) => {
-                                         if (part.startsWith('$$') && part.endsWith('$$')) {
-                                           const math = part.slice(2, -2);
-                                           return (
-                                             <div key={index} className="my-2 flex justify-center">
-                                               <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
-                                             </div>
-                                           );
-                                         } else if (part.startsWith('$') && part.endsWith('$')) {
-                                           const math = part.slice(1, -1);
-                                           return (
-                                             <span key={index}>
-                                               <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />
-                                             </span>
-                                           );
-                                         } else {
-                                           return <span key={index}>{part}</span>;
-                                         }
-                                       })}
-                                     </h1>
-                                   </div>
-                                 );
-                               }
-                               return (
-                                 <div className="mb-6">
-                                   <h1 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-xl font-bold mb-4 bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent font-black`} {...props} />
-                                 </div>
-                               );
-                             },
-                             h2: ({node, ...props}) => {
-                               const content = props.children?.toString() || '';
-                               if (content.includes('$$') || content.includes('$')) {
-                                 const parts = content.split(/(\$\$[^$]*\$\$|\$[^$\n]*\$)/g);
-                                 return (
-                                   <h2 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-lg font-semibold mb-3 ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>
-                                     {parts.map((part, index) => {
-                                       if (part.startsWith('$$') && part.endsWith('$$')) {
-                                         const math = part.slice(2, -2);
-                                         return (
-                                           <div key={index} className="my-2 flex justify-center">
-                                             <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
-                                           </div>
-                                         );
-                                       } else if (part.startsWith('$') && part.endsWith('$')) {
-                                         const math = part.slice(1, -1);
-                                         return (
-                                           <span key={index}>
-                                             <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />
-                                           </span>
-                                         );
-                                       } else {
-                                         return <span key={index}>{part}</span>;
-                                       }
-                                     })}
-                                   </h2>
-                                 );
-                               }
-                               return <h2 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-lg font-semibold mb-3 ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`} {...props} />;
-                             },
-                             h3: ({node, ...props}) => {
-                               const content = props.children?.toString() || '';
-                               if (content.includes('$$') || content.includes('$')) {
-                                 const parts = content.split(/(\$\$[^$]*\$\$|\$[^$\n]*\$)/g);
-                                 return (
-                                   <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-base font-medium mb-2 ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`}>
-                                     {parts.map((part, index) => {
-                                       if (part.startsWith('$$') && part.endsWith('$$')) {
-                                         const math = part.slice(2, -2);
-                                         return (
-                                           <div key={index} className="my-2 flex justify-center">
-                                             <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
-                                           </div>
-                                         );
-                                       } else if (part.startsWith('$') && part.endsWith('$')) {
-                                         const math = part.slice(1, -1);
-                                         return (
-                                           <span key={index}>
-                                             <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />
-                                           </span>
-                                         );
-                                       } else {
-                                         return <span key={index}>{part}</span>;
-                                       }
-                                     })}
-                                   </h3>
-                                 );
-                               }
-                               return <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-base font-medium mb-2 ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`} {...props} />;
-                             },
-                             p: ({node, ...props}) => {
-                               const content = props.children?.toString() || '';
-                               // LaTeX 수식이 포함된 텍스트 처리
-                               if (content.includes('$$') || content.includes('$')) {
-                                 const parts = content.split(/(\$\$[^$]*\$\$|\$[^$\n]*\$)/g);
-                                 return (
-                                   <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-3 leading-7`}>
-                                     {parts.map((part, index) => {
-                                       if (part.startsWith('$$') && part.endsWith('$$')) {
-                                         const math = part.slice(2, -2);
-                                         return (
-                                           <div key={index} className="my-4 flex justify-center">
-                                             <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
-                                           </div>
-                                         );
-                                       } else if (part.startsWith('$') && part.endsWith('$')) {
-                                         const math = part.slice(1, -1);
-                                         return (
-                                           <span key={index}>
-                                             <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />
-                                           </span>
-                                         );
-                                       } else {
-                                         return <span key={index}>{part}</span>;
-                                       }
-                                     })}
-                                   </p>
-                                 );
-                               }
-                               return <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-3 leading-7`} {...props} />;
-                             },
-                             ul: ({node, ...props}) => <ul className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} list-disc list-inside mb-3 space-y-1`} {...props} />,
-                             ol: ({node, ...props}) => <ol className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} list-decimal list-inside mb-3 space-y-1`} {...props} />,
-                             li: ({node, ...props}) => {
-                               const content = props.children?.toString() || '';
-                               // LaTeX 수식이 포함된 리스트 아이템 처리
-                               if (content.includes('$$') || content.includes('$')) {
-                                 const parts = content.split(/(\$\$[^$]*\$\$|\$[^$\n]*\$)/g);
-                                 return (
-                                   <li className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-1`}>
-                                     {parts.map((part, index) => {
-                                       if (part.startsWith('$$') && part.endsWith('$$')) {
-                                         const math = part.slice(2, -2);
-                                         return (
-                                           <div key={index} className="my-2 flex justify-center">
-                                             <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
-                                           </div>
-                                         );
-                                       } else if (part.startsWith('$') && part.endsWith('$')) {
-                                         const math = part.slice(1, -1);
-                                         return (
-                                           <span key={index}>
-                                             <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />
-                                           </span>
-                                         );
-                                       } else {
-                                         return <span key={index}>{part}</span>;
-                                       }
-                                     })}
-                                   </li>
-                                 );
-                               }
-                               return <li className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-1`} {...props} />;
-                             },
-                             strong: ({node, ...props}) => <strong className={`${isDarkMode ? 'text-white' : 'text-gray-900'} font-semibold ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`} {...props} />,
-                             em: ({node, ...props}) => <em className={`${isDarkMode ? 'text-gray-200' : 'text-gray-600'} italic`} {...props} />,
-                             code: ({node, ...props}) => {
-                               const content = props.children?.toString() || '';
-                               // LaTeX 수식인지 확인 ($$ 또는 $로 감싸진 경우)
-                               if (content.startsWith('$$') && content.endsWith('$$')) {
-                                 const math = content.slice(2, -2);
-                                 return (
-                                   <div className="my-4 flex justify-center">
-                                     <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
-                                   </div>
-                                 );
-                               } else if (content.startsWith('$') && content.endsWith('$')) {
-                                 const math = content.slice(1, -1);
-                                 return <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />;
-                               } else {
-                                 // 백틱으로 감싸진 LaTeX 수식 처리 (이전 버전 호환성)
-                                 const trimmedContent = content.trim();
-                                 if (trimmedContent.startsWith('$$') && trimmedContent.endsWith('$$')) {
-                                   const math = trimmedContent.slice(2, -2);
-                                   return (
-                                     <div className="my-4 flex justify-center">
-                                       <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
-                                     </div>
-                                   );
-                                 } else if (trimmedContent.startsWith('$') && trimmedContent.endsWith('$')) {
-                                   const math = trimmedContent.slice(1, -1);
-                                   return <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />;
-                                 }
-                                 // 일반 코드 블록
-                                 return (
-                                   <code className={`${isDarkMode ? 'bg-blue-900/30 text-blue-200 border-blue-700' : 'bg-blue-50 text-blue-800 border-blue-200'} px-2 py-1 rounded-md text-xs font-mono border ${isDarkMode ? 'shadow-inner' : 'shadow-sm'}`} {...props} />
-                                 );
-                               }
-                             },
-                             pre: ({node, ...props}) => <pre className={`${isDarkMode ? 'bg-gray-700 text-gray-200 border-gray-600' : 'bg-gray-100 text-gray-800 border-gray-300'} p-4 rounded-lg text-xs font-mono overflow-x-auto mb-3 border shadow-sm`} {...props} />,
-                             blockquote: ({node, ...props}) => <blockquote className={`${isDarkMode ? 'border-blue-500 text-gray-300 bg-blue-900/20' : 'border-blue-300 text-gray-600 bg-blue-50'} border-l-4 pl-4 italic mb-3 py-2 rounded-r-lg`} {...props} />,
-                             table: ({node, ...props}) => <table className={`${isDarkMode ? 'border-gray-600' : 'border-gray-300'} border-collapse border w-full mb-4`} {...props} />,
-                             thead: ({node, ...props}) => <thead className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`} {...props} />,
-                             tbody: ({node, ...props}) => <tbody {...props} />,
-                             tr: ({node, ...props}) => <tr className={`${isDarkMode ? 'border-gray-600 hover:bg-gray-700/50' : 'border-gray-300 hover:bg-gray-50'}`} {...props} />,
-                             th: ({node, ...props}) => <th className={`${isDarkMode ? 'border-gray-600 text-white bg-gray-700' : 'border-gray-300 text-gray-900 bg-gray-100'} border px-3 py-2 text-left font-semibold text-sm`} {...props} />,
-                             td: ({node, ...props}) => <td className={`${isDarkMode ? 'border-gray-600 text-gray-300' : 'border-gray-300 text-gray-700'} border px-3 py-2 text-sm`} {...props} />
-                           }}
-                         >
-                           {summary}
-                         </ReactMarkdown>
+                         <HtmlRenderer html={summary} isDarkMode={isDarkMode} />
                        </div>
                      </div>
                    </div>
@@ -2319,63 +2180,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                      </h3>
                      <div className={`${isDarkMode ? 'bg-gradient-to-br from-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-50 to-white'} p-6 rounded-xl border ${isDarkMode ? 'border-gray-700 shadow-lg' : 'border-gray-200 shadow-md'} backdrop-blur-sm`}>
                        <div className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm leading-relaxed prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}>
-                         <ReactMarkdown 
-                           remarkPlugins={[remarkGfm]}
-                           components={{
-                             h1: ({node, ...props}) => <h1 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-xl font-bold mb-4 bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent`} {...props} />,
-                             h2: ({node, ...props}) => <h2 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-lg font-semibold mb-3 ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`} {...props} />,
-                             h3: ({node, ...props}) => <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-base font-medium mb-2 ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`} {...props} />,
-                             p: ({node, ...props}) => <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-3 leading-7`} {...props} />,
-                             ul: ({node, ...props}) => <ul className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} list-disc list-inside mb-3 space-y-1`} {...props} />,
-                             ol: ({node, ...props}) => <ol className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} list-decimal list-inside mb-3 space-y-1`} {...props} />,
-                             li: ({node, ...props}) => <li className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-1`} {...props} />,
-                             strong: ({node, ...props}) => <strong className={`${isDarkMode ? 'text-white' : 'text-gray-900'} font-semibold ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`} {...props} />,
-                             em: ({node, ...props}) => <em className={`${isDarkMode ? 'text-gray-200' : 'text-gray-600'} italic`} {...props} />,
-                             code: ({node, ...props}) => {
-                               const content = props.children?.toString() || '';
-                               // LaTeX 수식인지 확인 ($$ 또는 $로 감싸진 경우)
-                               if (content.startsWith('$$') && content.endsWith('$$')) {
-                                 const math = content.slice(2, -2);
-                                 return (
-                                   <div className="my-4 flex justify-center">
-                                     <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
-                                   </div>
-                                 );
-                               } else if (content.startsWith('$') && content.endsWith('$')) {
-                                 const math = content.slice(1, -1);
-                                 return <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />;
-                               } else {
-                                 // 백틱으로 감싸진 LaTeX 수식 처리 (이전 버전 호환성)
-                                 const trimmedContent = content.trim();
-                                 if (trimmedContent.startsWith('$$') && trimmedContent.endsWith('$$')) {
-                                   const math = trimmedContent.slice(2, -2);
-                                   return (
-                                     <div className="my-4 flex justify-center">
-                                       <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
-                                     </div>
-                                   );
-                                 } else if (trimmedContent.startsWith('$') && trimmedContent.endsWith('$')) {
-                                   const math = trimmedContent.slice(1, -1);
-                                   return <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />;
-                                 }
-                                 // 일반 코드 블록
-                                 return (
-                                   <code className={`${isDarkMode ? 'bg-blue-900/30 text-blue-200 border-blue-700' : 'bg-blue-50 text-blue-800 border-blue-200'} px-2 py-1 rounded-md text-xs font-mono border ${isDarkMode ? 'shadow-inner' : 'shadow-sm'}`} {...props} />
-                                 );
-                               }
-                             },
-                             pre: ({node, ...props}) => <pre className={`${isDarkMode ? 'bg-gray-700 text-gray-200 border-gray-600' : 'bg-gray-100 text-gray-800 border-gray-300'} p-4 rounded-lg text-xs font-mono overflow-x-auto mb-3 border shadow-sm`} {...props} />,
-                             blockquote: ({node, ...props}) => <blockquote className={`${isDarkMode ? 'border-blue-500 text-gray-300 bg-blue-900/20' : 'border-blue-300 text-gray-600 bg-blue-50'} border-l-4 pl-4 italic mb-3 py-2 rounded-r-lg`} {...props} />,
-                             table: ({node, ...props}) => <table className={`${isDarkMode ? 'border-gray-600' : 'border-gray-300'} border-collapse border w-full mb-4`} {...props} />,
-                             thead: ({node, ...props}) => <thead className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`} {...props} />,
-                             tbody: ({node, ...props}) => <tbody {...props} />,
-                             tr: ({node, ...props}) => <tr className={`${isDarkMode ? 'border-gray-600 hover:bg-gray-700/50' : 'border-gray-300 hover:bg-gray-50'}`} {...props} />,
-                             th: ({node, ...props}) => <th className={`${isDarkMode ? 'border-gray-600 text-white bg-gray-700' : 'border-gray-300 text-gray-900 bg-gray-100'} border px-3 py-2 text-left font-semibold text-sm`} {...props} />,
-                             td: ({node, ...props}) => <td className={`${isDarkMode ? 'border-gray-600 text-gray-300' : 'border-gray-300 text-gray-700'} border px-3 py-2 text-sm`} {...props} />
-                           }}
-                         >
-                           {translatedContent}
-                         </ReactMarkdown>
+                         <HtmlRenderer html={translatedContent} isDarkMode={isDarkMode} />
                        </div>
                      </div>
                    </div>

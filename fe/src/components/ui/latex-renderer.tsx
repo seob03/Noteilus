@@ -13,13 +13,16 @@ export const LatexRenderer: React.FC<LatexRendererProps> = ({ math, display = fa
     const renderMath = () => {
       if (!containerRef.current) return;
 
+      // math prop이 문자열이 아닌 경우 안전하게 처리
+      const mathString = typeof math === 'string' ? math : String(math);
+
       try {
         const katex = (window as any).katex;
         
         if (!katex) {
           console.warn('KaTeX가 로드되지 않았습니다.');
           // 폴백: 원본 텍스트 표시
-          containerRef.current.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: monospace;">${math}</span>`;
+          containerRef.current.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: monospace;">${mathString}</span>`;
           return;
         }
 
@@ -31,7 +34,7 @@ export const LatexRenderer: React.FC<LatexRendererProps> = ({ math, display = fa
           const blockElement = document.createElement('div');
           blockElement.style.textAlign = 'center';
           blockElement.style.margin = '1rem 0';
-          katex.render(math, blockElement, {
+          katex.render(mathString, blockElement, {
             displayMode: true,
             throwOnError: false,
             errorColor: '#cc0000'
@@ -40,7 +43,7 @@ export const LatexRenderer: React.FC<LatexRendererProps> = ({ math, display = fa
         } else {
           // 인라인 수식
           const inlineElement = document.createElement('span');
-          katex.render(math, inlineElement, {
+          katex.render(mathString, inlineElement, {
             displayMode: false,
             throwOnError: false,
             errorColor: '#cc0000'
@@ -49,8 +52,8 @@ export const LatexRenderer: React.FC<LatexRendererProps> = ({ math, display = fa
         }
       } catch (error) {
         console.error('KaTeX 렌더링 오류:', error);
-        // 폴백: 원본 텍스트 표시
-        containerRef.current.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: monospace;">${math}</span>`;
+        // 폴백: 원본 텍스트 표시 (더 안전한 처리)
+        containerRef.current.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: monospace;">${mathString}</span>`;
       }
     };
 
@@ -70,10 +73,15 @@ export const LatexRenderer: React.FC<LatexRendererProps> = ({ math, display = fa
     }
   }, [math, display, isDarkMode]);
 
+  // math prop이 문자열이 아닌 경우를 위한 안전한 렌더링
+  const mathString = typeof math === 'string' ? math : String(math);
+
   return (
     <div 
       ref={containerRef}
       className={`${isDarkMode ? 'text-gray-200' : 'text-gray-800'} ${display ? 'my-4' : 'inline'}`}
+      // KaTeX가 로드되지 않은 경우를 위한 기본 텍스트
+      data-math={mathString}
     />
   );
 };
