@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronLeft, Menu, Search, X, Pen, Highlighter, Eraser, Square, Circle, Share2, FileEdit, BookOpen, Settings as SettingsIcon, Download, Map, Languages, Copy, Type } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Menu, Search, X, Pen, Highlighter, Eraser, Square, Circle, Share2, FileEdit, BookOpen, Settings as SettingsIcon, Download, Map, Languages, Copy, Type, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -148,10 +148,14 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [pdfDimensions, setPdfDimensions] = useState<{width: number, height: number} | null>(null);
   const [containerDimensions, setContainerDimensions] = useState<{width: number, height: number}>({width: 0, height: 0});
   
+  // PDF 콘텐츠 전용 줌 상태
+  const [pdfZoom, setPdfZoom] = useState<number>(1);
+  
   // 사이드바 상태 - 상호 배타적
   const [mapSidebarOpen, setMapSidebarOpen] = useState(false);
-  const [aiSidebarOpen, setAiSidebarOpen] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(240);
+  const [aiSidebarOpen, setAiSidebarOpen] = useState(true);
+  const [aiSidebarWidth, setAiSidebarWidth] = useState(() => Math.floor(window.innerWidth * 0.27));
+  const [mapSidebarWidth, setMapSidebarWidth] = useState(240);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -221,7 +225,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     });
     
     setPdfScale(newScale);
-  }, [pdfDimensions, mapSidebarOpen, aiSidebarOpen]);
+  }, [pdfDimensions, mapSidebarOpen, aiSidebarOpen, aiSidebarWidth, mapSidebarWidth]);
   
   // 컴포넌트 마운트 및 리사이즈 이벤트
   useEffect(() => {
@@ -757,26 +761,6 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     }
   }, [strokes, isDarkMode, currentPage, numPages]); // numPages는 첫 랜더링에서 필기 보이게 하기 위해 추가
 
-  // 스크롤로 페이지 변경
-  useEffect(() => {
-    const handleWheel = (e: WheelEvent) => {
-      if (!pdfViewerRef.current?.contains(e.target as Node)) return;
-      
-      e.preventDefault();
-      
-      if (e.deltaY > 0 && currentPage < totalPages) {
-        setCurrentPage(prev => prev + 1);
-      } else if (e.deltaY < 0 && currentPage > 1) {
-        setCurrentPage(prev => prev - 1);
-      }
-    };
-
-    const viewer = pdfViewerRef.current;
-    if (viewer) {
-      viewer.addEventListener('wheel', handleWheel, { passive: false });
-      return () => viewer.removeEventListener('wheel', handleWheel);
-    }
-  }, [currentPage, totalPages]);
 
   // 캔버스 필기 이벤트 핸들러
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1131,11 +1115,18 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const handleMouseMoveResize = useCallback((e: MouseEvent) => {
     if (!isResizing) return;
     
-    // AI 사이드바와 PDF 맵 모두 오른쪽에서 리사이즈
-    if (aiSidebarOpen || mapSidebarOpen) {
-      const newWidth = window.innerWidth - e.clientX;
+    const newWidth = window.innerWidth - e.clientX;
+    
+    // AI 사이드바 리사이즈
+    if (aiSidebarOpen) {
+      if (newWidth >= 240 && newWidth <= 1000) {
+        setAiSidebarWidth(newWidth);
+      }
+    }
+    // PDF 맵 사이드바 리사이즈
+    else if (mapSidebarOpen) {
       if (newWidth >= 240 && newWidth <= 500) {
-        setSidebarWidth(newWidth);
+        setMapSidebarWidth(newWidth);
       }
     }
   }, [isResizing, aiSidebarOpen, mapSidebarOpen]);
@@ -1401,6 +1392,19 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     }
   }, [currentPage]);
 
+  // PDF 줌 제어 함수들
+  const handleZoomIn = useCallback(() => {
+    setPdfZoom(prev => Math.min(prev + 0.25, 3));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setPdfZoom(prev => Math.max(prev - 0.25, 1));
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setPdfZoom(1);
+  }, []);
+
   // 키보드 이벤트 (실행취소/다시실행 + 페이지 이동)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1422,6 +1426,17 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
         } else if ((e.key === 'y') || (e.key === 'z' && e.shiftKey)) {
           e.preventDefault();
           handleRedo();
+        }
+        // Ctrl/Cmd + Plus/Minus: PDF 줌 인/아웃 (브라우저 줌 대신)
+        else if (e.key === '=' || e.key === '+') {
+          e.preventDefault();
+          handleZoomIn();
+        } else if (e.key === '-') {
+          e.preventDefault();
+          handleZoomOut();
+        } else if (e.key === '0') {
+          e.preventDefault();
+          handleZoomReset();
         }
       } 
       // 방향키: 페이지 이동
@@ -1445,22 +1460,49 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, goToNextPage, goToPrevPage]);
+  }, [handleUndo, handleRedo, goToNextPage, goToPrevPage, handleZoomIn, handleZoomOut, handleZoomReset]);
 
+  // PDF 콘텐츠 줌 제어 (Ctrl + 휠로 PDF만 줌)
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      // PDF 뷰어 영역에서만 작동하도록 확인
+      const pdfViewer = pdfViewerRef.current;
+      if (!pdfViewer?.contains(e.target as Node)) return;
+      
+      // Ctrl/Cmd + 휠인지 확인
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault(); // 브라우저 줌 방지
+        
+        if (e.deltaY < 0) {
+          // 휠 위로: 확대
+          handleZoomIn();
+        } else {
+          // 휠 아래로: 축소
+          handleZoomOut();
+        }
+      }
+    };
 
+    // PDF 뷰어에 이벤트 리스너 추가
+    const pdfViewer = pdfViewerRef.current;
+    if (pdfViewer) {
+      pdfViewer.addEventListener('wheel', handleWheel, { passive: false });
+      return () => pdfViewer.removeEventListener('wheel', handleWheel);
+    }
+  }, [handleZoomIn, handleZoomOut]);
 
   // AI 버튼 위치 계산 - 맵 사이드바가 열릴 때 동적으로 조정
   const getAiButtonRightPosition = () => {
     if (mapSidebarOpen) {
-      return sidebarWidth + 32; // 사이드바 너비 + 기본 32px
+      return mapSidebarWidth + 32; // 맵 사이드바 너비 + 기본 32px
     }
     return 32; // 기본 right-8 (32px)
   };
 
   return (
-    <div className={`${isDarkMode ? 'bg-[#1a1a1e]' : 'bg-gray-50'} h-screen flex relative overflow-hidden`}>
+    <div className={`${isDarkMode ? 'bg-[#1a1a1e]' : 'bg-gray-50'} h-screen flex relative overflow-x-auto`}>
       {/* 메인 콘텐츠 */}
-      <div className="flex-1 flex flex-col h-full">
+      <div className="flex-1 flex flex-col h-full" style={{ minWidth: '400px' }}>
         {/* 상단 헤더 - 고정 높이 */}
         <div className={`flex items-center p-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} flex-shrink-0 h-16`}>
           {/* 왼쪽 버튼들 */}
@@ -1555,6 +1597,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                  </Button>
                </div>
 
+
               {/* 색상 선택 */}
               <div className="flex items-center gap-2">
                 <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-xs`}>색상:</span>
@@ -1647,6 +1690,24 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                  <X size={16} />
                  <span className="text-xs">전체지움</span>
                </Button>
+
+               {/* 줌 컨트롤 - 확대 시에만 표시 */}
+               {pdfZoom > 1 && (
+                 <div className="flex items-center gap-2">
+                   <Button
+                     variant="ghost"
+                     size="sm"
+                     onClick={handleZoomReset}
+                     className="flex flex-col items-center gap-1 h-auto py-2 px-3"
+                   >
+                     <RotateCcw size={16} />
+                     <span className="text-xs">초기화</span>
+                   </Button>
+                   <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-xs`}>
+                     {Math.round(pdfZoom * 100)}%
+                   </span>
+                 </div>
+               )}
             </div>
 
                          {/* 오른쪽 안내 메시지 */}
@@ -1683,7 +1744,15 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
           )}
 
                                            {/* react-pdf Document with Excalidraw overlay */}
-                  <div className="relative inline-block" ref={containerRef}>
+                  <div 
+                    className="relative inline-block" 
+                    ref={containerRef}
+                    style={{
+                      transform: `scale(${pdfZoom})`,
+                      transformOrigin: 'center center',
+                      transition: 'transform 0.2s ease-in-out'
+                    }}
+                  >
                     <Document
                     file={pdfUrl}
                     onLoadSuccess={({ numPages }) => {
@@ -1836,12 +1905,34 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                     </div>
                   )}
                   </div>
-                   
-           {/* 페이지 정보 - PDF 아래에 위치 */}
-           <div className="text-center mt-4">
-             <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm`}>
+           
+           {/* 페이지 네비게이션 - PDF 아래에 위치 (줌 영향 받지 않음) */}
+           <div className="flex items-center justify-center gap-4 mt-4">
+             {currentPage > 1 && (
+               <Button
+                 variant="outline"
+                 size="sm"
+                 onClick={goToPrevPage}
+                 className={`px-3 py-2 ${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+               >
+                 <ChevronLeft size={16} />
+               </Button>
+             )}
+             
+             <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm px-4`}>
                페이지 {currentPage} / {numPages}
              </span>
+             
+             {currentPage < totalPages && (
+               <Button
+                 variant="outline"
+                 size="sm"
+                 onClick={goToNextPage}
+                 className={`px-3 py-2 ${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+               >
+                 <ChevronRight size={16} />
+               </Button>
+             )}
            </div>
         </div>
       </div>
@@ -1851,7 +1942,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
         className={`${isDarkMode ? 'bg-[#121214]' : 'bg-white'} transition-all duration-300 flex-shrink-0 relative border-l ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} h-full ${
           mapSidebarOpen ? '' : 'w-0 overflow-hidden'
         }`}
-        style={mapSidebarOpen ? { width: `${sidebarWidth}px` } : {}}
+        style={mapSidebarOpen ? { width: `${mapSidebarWidth}px` } : {}}
       >
         <div className="p-4 h-full flex flex-col" style={{ minWidth: '240px', maxWidth: '500px' }}>
           {/* 상단 컨트롤 */}
@@ -1977,7 +2068,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
         className={`${isDarkMode ? 'bg-[#121214]' : 'bg-white'} transition-all duration-300 flex-shrink-0 relative border-l ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} h-full ${
           aiSidebarOpen ? '' : 'w-0 overflow-hidden'
         }`}
-        style={aiSidebarOpen ? { width: `${sidebarWidth}px` } : {}}
+        style={aiSidebarOpen ? { width: `${aiSidebarWidth}px` } : {}}
       >
         <div className="flex flex-col h-full">
           {/* AI 사이드바 헤더 - 탭 */}
