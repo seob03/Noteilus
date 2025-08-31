@@ -78,6 +78,78 @@ class PdfDocument {
     const pdf = await this.findById(pdfId);
     return pdf ? pdf.textMemos || {} : {};
   }
+
+  // AI 요약 저장
+  async saveAISummary(pdfId, summary) {
+    const result = await this.collection.updateOne(
+      { _id: ObjectId.createFromHexString(pdfId.toString()) },
+      { 
+        $set: { 
+          aiSummary: summary,
+          aiSummaryGeneratedAt: new Date(),
+          lastModified: new Date()
+        } 
+      }
+    );
+    return result;
+  }
+
+  // AI 요약 조회
+  async getAISummary(pdfId) {
+    const pdf = await this.findById(pdfId);
+    return pdf ? {
+      summary: pdf.aiSummary,
+      generatedAt: pdf.aiSummaryGeneratedAt
+    } : null;
+  }
+
+  // AI 퀴즈 저장
+  async saveAIQuiz(pdfId, quiz) {
+    const result = await this.collection.updateOne(
+      { _id: ObjectId.createFromHexString(pdfId.toString()) },
+      { 
+        $set: { 
+          aiQuiz: quiz,
+          aiQuizGeneratedAt: new Date(),
+          lastModified: new Date()
+        } 
+      }
+    );
+    return result;
+  }
+
+  // AI 퀴즈 조회
+  async getAIQuiz(pdfId) {
+    const pdf = await this.findById(pdfId);
+    return pdf ? {
+      quiz: pdf.aiQuiz,
+      generatedAt: pdf.aiQuizGeneratedAt
+    } : null;
+  }
+
+  // AI 번역 저장
+  async saveAITranslation(pdfId, targetLanguage, translation) {
+    const result = await this.collection.updateOne(
+      { _id: ObjectId.createFromHexString(pdfId.toString()) },
+      { 
+        $set: { 
+          [`aiTranslations.${targetLanguage}`]: {
+            translation: translation,
+            generatedAt: new Date()
+          },
+          lastModified: new Date()
+        } 
+      }
+    );
+    return result;
+  }
+
+  // AI 번역 조회
+  async getAITranslation(pdfId, targetLanguage) {
+    const pdf = await this.findById(pdfId);
+    if (!pdf || !pdf.aiTranslations) return null;
+    return pdf.aiTranslations[targetLanguage] || null;
+  }
 }
 
 module.exports = PdfDocument;

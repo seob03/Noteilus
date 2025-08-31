@@ -7,6 +7,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Label } from './ui/label';
 import { Separator } from './ui/separator';
 import { toast } from 'sonner';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { LatexRenderer } from './ui/latex-renderer';
+
 
 // react-pdf import
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -95,9 +99,18 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [translatedContent, setTranslatedContent] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
   
+  // 요약 결과를 번역에서 재활용하기 위한 상태
+  const [summaryForTranslation, setSummaryForTranslation] = useState<string>('');
+  
   // 퀴즈 설정 상태
   const [showQuizSettings, setShowQuizSettings] = useState(false);
   const [quizType, setQuizType] = useState<'ox' | 'multiple4' | 'multiple5' | 'fillblank'>('multiple5');
+
+  // AI 관련 상태
+  const [summary, setSummary] = useState<string>('');
+  const [isLoadingSummary, setIsLoadingSummary] = useState(false);
+  const [quiz, setQuiz] = useState<any>(null);
+  const [isLoadingQuiz, setIsLoadingQuiz] = useState(false);
   const [quizCount, setQuizCount] = useState(5);
   
   // 캔버스 필기 상태
@@ -191,6 +204,114 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   
   const [currentColor, setCurrentColor] = useState('#000000');
   const [currentSize, setCurrentSize] = useState(2);
+
+  // AI API 호출 함수들
+  const fetchSummary = async () => {
+    try {
+      setIsLoadingSummary(true);
+      const response = await fetch(`/api/pdfs/${pdfId}/summary`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('요약 요청에 실패했습니다.');
+      }
+
+      const data = await response.json();
+      setSummary(data.summary);
+      
+      // 요약 결과를 번역에서도 사용할 수 있도록 저장
+      setSummaryForTranslation(data.summary);
+      
+      // 캐시된 데이터인지 확인하고 사용자에게 알림
+      if (data.fromCache) {
+        console.log('기존 저장된 요약을 불러왔습니다.');
+      } else {
+        console.log('새로운 요약을 생성했습니다.');
+      }
+    } catch (error) {
+      console.error('요약 요청 에러:', error);
+      toast.error('요약을 가져오는데 실패했습니다.');
+    } finally {
+      setIsLoadingSummary(false);
+    }
+  };
+
+  const fetchTranslation = async (targetLanguage: string) => {
+    try {
+      setIsTranslating(true);
+      
+      // 먼저 요약이 있는지 확인 (summaryForTranslation 우선 사용)
+      if (!summaryForTranslation) {
+        console.log('요약이 없습니다. 먼저 요약을 생성합니다.');
+        toast.info('요약을 먼저 생성한 후 번역을 진행합니다.');
+        await fetchSummary();
+      }
+      
+      const response = await fetch(`/api/pdfs/${pdfId}/translate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          targetLanguage,
+          sourceContent: summaryForTranslation || summary // 요약 결과를 번역 API에 전달
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('번역 요청에 실패했습니다.');
+      }
+
+      const data = await response.json();
+      setTranslatedContent(data.translation);
+      
+      // 캐시된 데이터인지 확인하고 사용자에게 알림
+      if (data.fromCache) {
+        console.log('기존 저장된 번역을 불러왔습니다.');
+        toast.success('기존 번역을 불러왔습니다.');
+      } else {
+        console.log('새로운 번역을 생성했습니다.');
+        toast.success('번역이 완료되었습니다.');
+      }
+    } catch (error) {
+      console.error('번역 요청 에러:', error);
+      toast.error('번역에 실패했습니다.');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const fetchQuiz = async () => {
+    try {
+      setIsLoadingQuiz(true);
+      const response = await fetch(`/api/pdfs/${pdfId}/quiz`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('퀴즈 요청에 실패했습니다.');
+      }
+
+      const data = await response.json();
+      setQuiz(data.quiz);
+      
+      // 캐시된 데이터인지 확인하고 사용자에게 알림
+      if (data.fromCache) {
+        console.log('기존 저장된 퀴즈를 불러왔습니다.');
+      } else {
+        console.log('새로운 퀴즈를 생성했습니다.');
+      }
+    } catch (error) {
+      console.error('퀴즈 요청 에러:', error);
+      toast.error('퀴즈를 가져오는데 실패했습니다.');
+    } finally {
+      setIsLoadingQuiz(false);
+    }
+  };
   
   // 실행취소/다시실행 상태 - 페이지별로 관리
   const [undoStacks, setUndoStacks] = useState<{ [pageNumber: number]: DrawingStroke[][] }>({});
@@ -256,6 +377,15 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     loadDrawingDataFromServer();
     loadTextMemosFromServer();
   }, [pdfId]);
+
+  // PDF 로드 완료 후 AI 정보 자동 로드
+  useEffect(() => {
+    if (pdfUrl && !isLoading && !error) {
+      // AI 정보 자동 로드
+      fetchSummary();
+      fetchQuiz();
+    }
+  }, [pdfUrl, isLoading, error]);
   
   // 채팅 자동 스크롤을 위한 ref
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
@@ -277,67 +407,15 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
 
   // 번역 기능
   const handleTranslate = async () => {
-    setIsTranslating(true);
-    
-    // 번역 시뮬레이션
-    setTimeout(() => {
-      const mockTranslations: { [key: string]: string } = {
-        'ko-to-en': `This document covers basic data preprocessing techniques for machine learning. The main contents include feature scaling and shifting, PCA for dimensionality reduction, NMF for sparse data decomposition, t-SNE for data visualization, and one-hot encoding for categorical data processing.
-
-**Key Concepts:**
-
-**Feature Scaling and Shifting**
-Many machine learning algorithms are sensitive to data scale. Features need to be adjusted through scaling and shifting.
-- Goal: Adjust all features to have zero mean and unit variance
-- Importance: Apply the same adjustments to both training and test datasets
-- Unbalanced feature scales cause weight scale imbalances
-
-**Gradient Descent Optimization**
-Solves the problem where Gradient Descent shows different speeds depending on weight direction, causing oscillating movements and slowing convergence speed.`,
-        'en-to-ko': `이 자료는 머신러닝의 기본적인 데이터 전처리 기법들을 다룹니다. 주요 내용은 특성 스케일링 및 이동, 차원 축소를 위한 PCA, 희소 데이터 분해를 위한 NMF, 데이터 시각화를 위한 t-SNE, 그리고 범주형 데이터 처리를 위한 원-핫 인코딩입니다.
-
-**주요 개념:**
-
-**특성 스케일링 및 이동 (Feature Scaling and Shifting)**
-많은 머신러닝 알고리즘은 데이터의 스케일에 민감하게 반응합니다. 스케일링과 이동을 통해 특성들을 조정해야 합니다.
-- 목표: 모든 특성이 제로 평균과 단위 분산을 갖도록 조정
-- 중요성: 훈련 데이터셋과 테스트 데이터셋에 동일한 조정 적용
-- 불균형한 특성 스케일은 가중치 스케일 불균형을 야기
-
-**경사 하강법 최적화**
-경사 하강법(Gradient Descent)이 가중치 방향에 따라 다른 속도를 보여 진동하는 움직임을 유발하고 수렴 속도를 늦추는 문제를 해결합니다.`,
-        'ko-to-ja': `この資料は機械学習の基本的なデータ前処理技法を扱います。主な内容は特徴スケーリングと移動、次元削減のためのPCA、疎データ分解のためのNMF、データ可視化のためのt-SNE、そしてカテゴリカルデータ処理のためのワンホットエンコーディングです。
-
-**主要概念：**
-
-**特徴スケーリングと移動**
-多くの機械学習アルゴリズムはデータのスケールに敏感に反応します。スケーリングと移動を通じて特徴を調整する必要があります。
-- 目標：すべての特徴がゼロ平均と単位分散を持つように調整
-- 重要性：訓練データセットとテストデータセットに同じ調整を適用
-- 不均衡な特徴スケールは重みスケール不均衡を引き起こす
-
-**勾配降下法最適化**
-勾配降下法が重み方向によって異なる速度を示し、振動する動きを引き起こし、収束速度を遅くする問題を解決します。`,
-        'ja-to-ko': `이 자료는 머신러닝의 기본적인 데이터 전처리 기법들을 다룹니다. 주요 내용은 특성 스케일링 및 이동, 차원 축소를 위한 PCA, 희소 데이터 분해를 위한 NMF, 데이터 시각화를 위한 t-SNE, 그리고 범주형 데이터 처리를 위한 원-핫 인코딩입니다.`,
-        'ko-to-zh': `本资料涵盖机器学习的基本数据预处理技术。主要内容包括特征缩放和移位、用于降维的PCA、用于稀疏数据分解的NMF、用于数据可视化的t-SNE，以及用于分类数据处理的独热编码。
-
-**主要概念：**
-
-**特征缩放和移位**
-许多机器学习算法对数据规模敏感。需要通过缩放和移位来调整特征。
-- 目标：调整所有特征使其具有零均值和单位方差
-- 重要性：对训练数据集和测试数据集应用相同的调整
-- 不平衡的特征尺度会导致权重尺度不平衡
-
-**梯度下降优化**
-解决梯度下降根据权重方向显示不同速度，导致振荡运动并减慢收敛速度的问题。`,
-        'zh-to-ko': `이 자료는 머신러닝의 기본적인 데이터 전처리 기법들을 다룹니다. 주요 내용은 특성 스케일링 및 이동, 차원 축소를 위한 PCA, 희소 데이터 분해를 위한 NMF, 데이터 시각화를 위한 t-SNE, 그리고 범주형 데이터 처리를 위한 원-핫 인코딩입니다.`,
-      };
-      
-      setTranslatedContent(mockTranslations[translateLanguage] || '번역 결과가 없습니다.');
-      setIsTranslating(false);
-      toast.success('번역이 완료되었습니다.');
-    }, 2000);
+    // 요약이 없으면 먼저 요약 생성 안내
+    if (!summaryForTranslation && !summary) {
+      toast.info('요약을 먼저 생성한 후 번역을 진행합니다.');
+      await fetchSummary();
+      // 요약 생성 완료 후 번역 실행
+      setTimeout(() => fetchTranslation(translateLanguage), 1000);
+    } else {
+      await fetchTranslation(translateLanguage);
+    }
   };
 
   // 번역 결과 복사
@@ -485,33 +563,23 @@ Solves the problem where Gradient Descent shows different speeds depending on we
 
   // 페이지 변경 시 캔버스 필기 데이터 로드
   useEffect(() => {
-    console.log('📄 페이지 변경 감지 - 페이지:', currentPage);
+    console.log('페이지 변경 감지 - 페이지:', currentPage);
     const savedData = drawingDataRef.current[currentPage];
     if (savedData) {
-      console.log('📂 저장된 데이터 로드 - strokes:', savedData.length, '개');
+      console.log('저장된 데이터 로드 - strokes:', savedData.length, '개');
       setStrokes(savedData);
       setPreviousStrokes(savedData); // previousStrokes도 함께 업데이트
       previousStrokesRef.current = [...savedData]; // ref도 함께 업데이트
     } else {
-      console.log('📂 새 페이지 - 빈 상태로 초기화');
+      console.log('새 페이지 - 빈 상태로 초기화');
       setStrokes([]);
       setPreviousStrokes([]);
       previousStrokesRef.current = []; // ref도 함께 초기화
     }
     setCurrentPath([]);
-    setIsDrawing(false);
-    
-    // 페이지 변경 시에만 undo/redo 스택 초기화
-    // console.log('🗑️ 페이지 변경으로 undo/redo 스택 초기화');
-    // setUndoStack([]);
-    // setRedoStack([]);
+    setIsDrawing(false); 
     setIsInitialLoad(true); // 페이지 변경 시 초기 로드 플래그 리셋
   }, [currentPage]);
-
-  // test useEffect(() => {
-  //   // 서버 데이터 받아오면 페이지 재 랜더링
-  //     renderCanvas();
-  // }, [drawingData]);
 
   // strokes 변경 시 undo 스택에 저장 (단, 초기 로드 시에는 제외)
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -521,7 +589,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
   
   // 이제 undoStack은 handleMouseUp에서 직접 관리하므로 이 useEffect는 단순화
   useEffect(() => {
-    console.log('🔄 strokes 상태 업데이트 - 현재 개수:', strokes.length, 'undoStack.length:', getCurrentUndoStack().length);
+    console.log('strokes 상태 업데이트 - 현재 개수:', strokes.length, 'undoStack.length:', getCurrentUndoStack().length);
   }, [strokes, undoStacks, currentPage]);
 
   // 페이지 변경 시 캔버스 다시 그리기
@@ -617,7 +685,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
     } else {
       renderCanvas();
     }
-  }, [strokes, isDarkMode, currentPage, numPages]); // currentPage 의존성 추가
+  }, [strokes, isDarkMode, currentPage, numPages]); // numPages는 첫 랜더링에서 필기 보이게 하기 위해 추가
 
   // 스크롤로 페이지 변경
   useEffect(() => {
@@ -722,7 +790,7 @@ Solves the problem where Gradient Descent shows different speeds depending on we
       console.log(`${currentTool} 그리기 완료 - 시작:`, startPoint, '끝:', previewShape);
       
       // 항상 현재 상태를 undoStack에 저장
-      console.log('📚 undoStack에 현재 상태 저장 - undoStack.length:', getCurrentUndoStack().length);
+      console.log('undoStack에 현재 상태 저장 - undoStack.length:', getCurrentUndoStack().length);
       setCurrentUndoStack([...getCurrentUndoStack(), [...strokes]]);
       setCurrentRedoStack([]);
       
@@ -735,7 +803,6 @@ Solves the problem where Gradient Descent shows different speeds depending on we
       };
       
       const newStrokes = [...strokes, shapeStroke];
-      console.log('📐 새로운 도형 추가 완료 - 이전:', strokes.length, '개 → 새로:', newStrokes.length, '개');
       setStrokes(newStrokes);
       saveDrawingData(currentPage, newStrokes);
       
@@ -747,8 +814,6 @@ Solves the problem where Gradient Descent shows different speeds depending on we
       console.log('마우스업 - previousStrokesRef:', previousStrokesRef.current.length);
       
       if (currentTool === 'eraser') {
-        console.log('🧽 지우개 사용 시작 - 현재 strokes:', strokes.length, '개');
-        
         // 지우개: 해당 영역의 스트로크들을 제거
         const erasedStrokes = strokes.filter(stroke => {
           // 지우개 경로와 겹치는 스트로크들을 제거
@@ -765,23 +830,19 @@ Solves the problem where Gradient Descent shows different speeds depending on we
         
         // 실제로 지워진 것이 있을 때만 undoStack에 저장
         if (erasedStrokes.length < strokes.length) {
-          console.log('📚 지우개 - undoStack에 현재 상태 저장 - undoStack.length:', getCurrentUndoStack().length);
+          console.log('지우개 - undoStack에 현재 상태 저장 - undoStack.length:', getCurrentUndoStack().length);
           setCurrentUndoStack([...getCurrentUndoStack(), [...strokes]]);
           // redo 스택 초기화
           setCurrentRedoStack([]);
         } else {
-          console.log('⚠️ 아무것도 지워지지 않아서 undoStack 저장 안함');
+          console.log('아무것도 지워지지 않아서 undoStack 저장 안함');
         }
         
-        console.log('🧽 지우개 완료 - 이전:', strokes.length, '개 → 남은:', erasedStrokes.length, '개');
+        console.log('지우개 완료 - 이전:', strokes.length, '개 → 남은:', erasedStrokes.length, '개');
         setStrokes(erasedStrokes);
         saveDrawingData(currentPage, erasedStrokes);
       } else {
-        // 일반 그리기 도구
-        console.log('🎨 새로운 stroke 추가 시작 - 현재 strokes:', strokes.length, '개');
-        
         // 항상 현재 상태를 undoStack에 저장 (첫 번째 stroke도 포함)
-        console.log('📚 undoStack에 현재 상태 저장 - undoStack.length:', getCurrentUndoStack().length);
         setCurrentUndoStack([...getCurrentUndoStack(), [...strokes]]);
         
         // redo 스택 초기화 (새로운 액션 시)
@@ -795,7 +856,6 @@ Solves the problem where Gradient Descent shows different speeds depending on we
         };
         
         const newStrokes = [...strokes, newStroke];
-        console.log('�� 새로운 stroke 추가 완료 - 이전:', strokes.length, '개 → 새로:', newStrokes.length, '개');
         setStrokes(newStrokes);
         saveDrawingData(currentPage, newStrokes);
       }
@@ -989,7 +1049,6 @@ Solves the problem where Gradient Descent shows different speeds depending on we
         ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
     }
-    
     toast.success(`페이지 ${currentPage} 필기를 지웠습니다.`);
   };
 
@@ -1196,9 +1255,18 @@ Solves the problem where Gradient Descent shows different speeds depending on we
   // 번역 탭이 활성화될 때 초기 번역 실행
   useEffect(() => {
     if (activeTab === 'translate' && !translatedContent) {
-      handleTranslate();
+      // 요약이 이미 있으면 바로 번역, 없으면 요약 먼저 생성
+      if (summaryForTranslation || summary) {
+        handleTranslate();
+      } else {
+        console.log('번역 탭 활성화: 요약이 없어서 먼저 요약을 생성합니다.');
+        fetchSummary().then(() => {
+          // 요약 생성 완료 후 번역 실행
+          setTimeout(() => handleTranslate(), 500);
+        });
+      }
     }
-  }, [activeTab, translatedContent]);
+  }, [activeTab, translatedContent, summaryForTranslation, summary]);
 
   // 실행취소 함수
   const handleUndo = useCallback(() => {
@@ -1928,34 +1996,242 @@ Solves the problem where Gradient Descent shows different speeds depending on we
 
               {/* 요약 내용 */}
               <div className="flex-1 overflow-y-auto p-4">
-                <div className="prose prose-sm max-w-none">
-                  <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} mb-4`}>문서 요약</h3>
-                  <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} leading-relaxed mb-4`}>
-                    본 자료는 머신러닝의 기본적인 데이터 전처리 기법들을 다룹니다. 주요 내용은 특성 스케일링 및 이동, 차원 축소를 위한 PCA, 희소 데이터 분해를 위한 NMF, 데이터 시각화를 위한 t-SNE, 그리고 범주형 데이터 처리를 위한 원-핫 인코딩입니다.
-                  </p>
-                  
-                  <h4 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} mb-3`}>주요 개념</h4>
-                  <div className="space-y-3">
-                    <div>
-                      <h5 className="text-blue-400 mb-2">특성 스케일링 및 이동 (Scaling and Shifting)</h5>
-                      <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm leading-relaxed`}>
-                        많은 머신러닝 알고리즘은 데이터의 스케일에 민감하게 반응합니다. 스케일링과 이동을 통해 특성들을 조정해야 합니다.
-                      </p>
-                      <ul className={`list-disc list-inside ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm mt-2 space-y-1`}>
-                        <li>목표: 모든 특성이 제로 평균과 단위 분산을 갖도록 조정</li>
-                        <li>중요성: 훈련 데이터셋과 테스트 데이터셋에 동일한 조정 적용</li>
-                        <li>불균형한 특성 스케일은 가중치 스케일 불균형을 야기</li>
-                      </ul>
-                    </div>
-                    
-                    <div>
-                      <h5 className="text-blue-400 mb-2">경사 하강법 최적화</h5>
-                      <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm leading-relaxed`}>
-                        경사 하강법(Gradient Descent)이 가중치 방향에 따라 다른 속도를 보여 진동하는 움직임을 유발하고 수렴 속도를 늦추는 문제를 해결합니다.
-                      </p>
+                {isLoadingSummary ? (
+                  <div className="flex items-center justify-center h-32">
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                      <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>요약 중...</span>
                     </div>
                   </div>
-                </div>
+                                 ) : summary ? (
+                   <div className="prose prose-sm max-w-none">
+                     <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} mb-4 flex items-center`}>
+                       <FileEdit size={16} className="mr-2" />
+                       문서 요약
+                     </h3>
+                     <div className={`${isDarkMode ? 'bg-gradient-to-br from-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-50 to-white'} p-6 rounded-xl border ${isDarkMode ? 'border-gray-700 shadow-lg' : 'border-gray-200 shadow-md'} backdrop-blur-sm`}>
+                       <div className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm leading-relaxed prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}>
+                         <ReactMarkdown 
+                           remarkPlugins={[remarkGfm]}
+                           components={{
+                             h1: ({node, ...props}) => {
+                               const content = props.children?.toString() || '';
+                               if (content.includes('$$') || content.includes('$')) {
+                                 const parts = content.split(/(\$\$[^$]*\$\$|\$[^$\n]*\$)/g);
+                                 return (
+                                   <div className="mb-6">
+                                     <h1 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-xl font-bold mb-4 bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent font-black`}>
+                                       {parts.map((part, index) => {
+                                         if (part.startsWith('$$') && part.endsWith('$$')) {
+                                           const math = part.slice(2, -2);
+                                           return (
+                                             <div key={index} className="my-2 flex justify-center">
+                                               <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
+                                             </div>
+                                           );
+                                         } else if (part.startsWith('$') && part.endsWith('$')) {
+                                           const math = part.slice(1, -1);
+                                           return (
+                                             <span key={index}>
+                                               <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />
+                                             </span>
+                                           );
+                                         } else {
+                                           return <span key={index}>{part}</span>;
+                                         }
+                                       })}
+                                     </h1>
+                                   </div>
+                                 );
+                               }
+                               return (
+                                 <div className="mb-6">
+                                   <h1 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-xl font-bold mb-4 bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent font-black`} {...props} />
+                                 </div>
+                               );
+                             },
+                             h2: ({node, ...props}) => {
+                               const content = props.children?.toString() || '';
+                               if (content.includes('$$') || content.includes('$')) {
+                                 const parts = content.split(/(\$\$[^$]*\$\$|\$[^$\n]*\$)/g);
+                                 return (
+                                   <h2 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-lg font-semibold mb-3 ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>
+                                     {parts.map((part, index) => {
+                                       if (part.startsWith('$$') && part.endsWith('$$')) {
+                                         const math = part.slice(2, -2);
+                                         return (
+                                           <div key={index} className="my-2 flex justify-center">
+                                             <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
+                                           </div>
+                                         );
+                                       } else if (part.startsWith('$') && part.endsWith('$')) {
+                                         const math = part.slice(1, -1);
+                                         return (
+                                           <span key={index}>
+                                             <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />
+                                           </span>
+                                         );
+                                       } else {
+                                         return <span key={index}>{part}</span>;
+                                       }
+                                     })}
+                                   </h2>
+                                 );
+                               }
+                               return <h2 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-lg font-semibold mb-3 ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`} {...props} />;
+                             },
+                             h3: ({node, ...props}) => {
+                               const content = props.children?.toString() || '';
+                               if (content.includes('$$') || content.includes('$')) {
+                                 const parts = content.split(/(\$\$[^$]*\$\$|\$[^$\n]*\$)/g);
+                                 return (
+                                   <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-base font-medium mb-2 ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`}>
+                                     {parts.map((part, index) => {
+                                       if (part.startsWith('$$') && part.endsWith('$$')) {
+                                         const math = part.slice(2, -2);
+                                         return (
+                                           <div key={index} className="my-2 flex justify-center">
+                                             <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
+                                           </div>
+                                         );
+                                       } else if (part.startsWith('$') && part.endsWith('$')) {
+                                         const math = part.slice(1, -1);
+                                         return (
+                                           <span key={index}>
+                                             <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />
+                                           </span>
+                                         );
+                                       } else {
+                                         return <span key={index}>{part}</span>;
+                                       }
+                                     })}
+                                   </h3>
+                                 );
+                               }
+                               return <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-base font-medium mb-2 ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`} {...props} />;
+                             },
+                             p: ({node, ...props}) => {
+                               const content = props.children?.toString() || '';
+                               // LaTeX 수식이 포함된 텍스트 처리
+                               if (content.includes('$$') || content.includes('$')) {
+                                 const parts = content.split(/(\$\$[^$]*\$\$|\$[^$\n]*\$)/g);
+                                 return (
+                                   <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-3 leading-7`}>
+                                     {parts.map((part, index) => {
+                                       if (part.startsWith('$$') && part.endsWith('$$')) {
+                                         const math = part.slice(2, -2);
+                                         return (
+                                           <div key={index} className="my-4 flex justify-center">
+                                             <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
+                                           </div>
+                                         );
+                                       } else if (part.startsWith('$') && part.endsWith('$')) {
+                                         const math = part.slice(1, -1);
+                                         return (
+                                           <span key={index}>
+                                             <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />
+                                           </span>
+                                         );
+                                       } else {
+                                         return <span key={index}>{part}</span>;
+                                       }
+                                     })}
+                                   </p>
+                                 );
+                               }
+                               return <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-3 leading-7`} {...props} />;
+                             },
+                             ul: ({node, ...props}) => <ul className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} list-disc list-inside mb-3 space-y-1`} {...props} />,
+                             ol: ({node, ...props}) => <ol className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} list-decimal list-inside mb-3 space-y-1`} {...props} />,
+                             li: ({node, ...props}) => {
+                               const content = props.children?.toString() || '';
+                               // LaTeX 수식이 포함된 리스트 아이템 처리
+                               if (content.includes('$$') || content.includes('$')) {
+                                 const parts = content.split(/(\$\$[^$]*\$\$|\$[^$\n]*\$)/g);
+                                 return (
+                                   <li className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-1`}>
+                                     {parts.map((part, index) => {
+                                       if (part.startsWith('$$') && part.endsWith('$$')) {
+                                         const math = part.slice(2, -2);
+                                         return (
+                                           <div key={index} className="my-2 flex justify-center">
+                                             <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
+                                           </div>
+                                         );
+                                       } else if (part.startsWith('$') && part.endsWith('$')) {
+                                         const math = part.slice(1, -1);
+                                         return (
+                                           <span key={index}>
+                                             <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />
+                                           </span>
+                                         );
+                                       } else {
+                                         return <span key={index}>{part}</span>;
+                                       }
+                                     })}
+                                   </li>
+                                 );
+                               }
+                               return <li className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-1`} {...props} />;
+                             },
+                             strong: ({node, ...props}) => <strong className={`${isDarkMode ? 'text-white' : 'text-gray-900'} font-semibold ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`} {...props} />,
+                             em: ({node, ...props}) => <em className={`${isDarkMode ? 'text-gray-200' : 'text-gray-600'} italic`} {...props} />,
+                             code: ({node, ...props}) => {
+                               const content = props.children?.toString() || '';
+                               // LaTeX 수식인지 확인 ($$ 또는 $로 감싸진 경우)
+                               if (content.startsWith('$$') && content.endsWith('$$')) {
+                                 const math = content.slice(2, -2);
+                                 return (
+                                   <div className="my-4 flex justify-center">
+                                     <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
+                                   </div>
+                                 );
+                               } else if (content.startsWith('$') && content.endsWith('$')) {
+                                 const math = content.slice(1, -1);
+                                 return <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />;
+                               } else {
+                                 // 백틱으로 감싸진 LaTeX 수식 처리 (이전 버전 호환성)
+                                 const trimmedContent = content.trim();
+                                 if (trimmedContent.startsWith('$$') && trimmedContent.endsWith('$$')) {
+                                   const math = trimmedContent.slice(2, -2);
+                                   return (
+                                     <div className="my-4 flex justify-center">
+                                       <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
+                                     </div>
+                                   );
+                                 } else if (trimmedContent.startsWith('$') && trimmedContent.endsWith('$')) {
+                                   const math = trimmedContent.slice(1, -1);
+                                   return <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />;
+                                 }
+                                 // 일반 코드 블록
+                                 return (
+                                   <code className={`${isDarkMode ? 'bg-blue-900/30 text-blue-200 border-blue-700' : 'bg-blue-50 text-blue-800 border-blue-200'} px-2 py-1 rounded-md text-xs font-mono border ${isDarkMode ? 'shadow-inner' : 'shadow-sm'}`} {...props} />
+                                 );
+                               }
+                             },
+                             pre: ({node, ...props}) => <pre className={`${isDarkMode ? 'bg-gray-700 text-gray-200 border-gray-600' : 'bg-gray-100 text-gray-800 border-gray-300'} p-4 rounded-lg text-xs font-mono overflow-x-auto mb-3 border shadow-sm`} {...props} />,
+                             blockquote: ({node, ...props}) => <blockquote className={`${isDarkMode ? 'border-blue-500 text-gray-300 bg-blue-900/20' : 'border-blue-300 text-gray-600 bg-blue-50'} border-l-4 pl-4 italic mb-3 py-2 rounded-r-lg`} {...props} />,
+                             table: ({node, ...props}) => <table className={`${isDarkMode ? 'border-gray-600' : 'border-gray-300'} border-collapse border w-full mb-4`} {...props} />,
+                             thead: ({node, ...props}) => <thead className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`} {...props} />,
+                             tbody: ({node, ...props}) => <tbody {...props} />,
+                             tr: ({node, ...props}) => <tr className={`${isDarkMode ? 'border-gray-600 hover:bg-gray-700/50' : 'border-gray-300 hover:bg-gray-50'}`} {...props} />,
+                             th: ({node, ...props}) => <th className={`${isDarkMode ? 'border-gray-600 text-white bg-gray-700' : 'border-gray-300 text-gray-900 bg-gray-100'} border px-3 py-2 text-left font-semibold text-sm`} {...props} />,
+                             td: ({node, ...props}) => <td className={`${isDarkMode ? 'border-gray-600 text-gray-300' : 'border-gray-300 text-gray-700'} border px-3 py-2 text-sm`} {...props} />
+                           }}
+                         >
+                           {summary}
+                         </ReactMarkdown>
+                       </div>
+                     </div>
+                   </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <FileEdit size={48} className={`mx-auto mb-4 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
+                    <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      요약을 생성하는 중입니다...
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1992,11 +2268,14 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                   <div className="flex gap-2">
                     <Button
                       onClick={handleTranslate}
-                      disabled={isTranslating}
-                      className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
+                      disabled={isTranslating || isLoadingSummary}
+                      className="flex-1 bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50"
                     >
                       <Languages size={14} className="mr-2" />
-                      {isTranslating ? '번역 중...' : '번역하기'}
+                      {isTranslating || isLoadingSummary 
+                        ? (isLoadingSummary ? '요약 생성 중...' : '번역 중...') 
+                        : '번역하기'
+                      }
                     </Button>
                     <Button
                       variant="outline"
@@ -2027,27 +2306,92 @@ Solves the problem where Gradient Descent shows different speeds depending on we
                   <div className="flex items-center justify-center h-32">
                     <div className="flex items-center space-x-2">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                      <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>번역 중...</span>
+                      <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                        {!summaryForTranslation && !summary ? '요약 생성 중...' : '번역 중...'}
+                      </span>
                     </div>
                   </div>
-                ) : translatedContent ? (
-                  <div className="prose prose-sm max-w-none">
-                    <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} mb-4 flex items-center`}>
-                      <Languages size={16} className="mr-2" />
-                      번역 결과
-                    </h3>
-                    <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-gray-50'} p-4 rounded-lg border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                      <pre className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm leading-relaxed whitespace-pre-wrap font-sans`}>
-                        {translatedContent}
-                      </pre>
-                    </div>
-                  </div>
+                                 ) : translatedContent ? (
+                   <div className="prose prose-sm max-w-none">
+                     <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} mb-4 flex items-center`}>
+                       <Languages size={16} className="mr-2" />
+                       번역 결과
+                     </h3>
+                     <div className={`${isDarkMode ? 'bg-gradient-to-br from-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-50 to-white'} p-6 rounded-xl border ${isDarkMode ? 'border-gray-700 shadow-lg' : 'border-gray-200 shadow-md'} backdrop-blur-sm`}>
+                       <div className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm leading-relaxed prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}>
+                         <ReactMarkdown 
+                           remarkPlugins={[remarkGfm]}
+                           components={{
+                             h1: ({node, ...props}) => <h1 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-xl font-bold mb-4 bg-gradient-to-r ${isDarkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent`} {...props} />,
+                             h2: ({node, ...props}) => <h2 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-lg font-semibold mb-3 ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`} {...props} />,
+                             h3: ({node, ...props}) => <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-base font-medium mb-2 ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`} {...props} />,
+                             p: ({node, ...props}) => <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-3 leading-7`} {...props} />,
+                             ul: ({node, ...props}) => <ul className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} list-disc list-inside mb-3 space-y-1`} {...props} />,
+                             ol: ({node, ...props}) => <ol className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} list-decimal list-inside mb-3 space-y-1`} {...props} />,
+                             li: ({node, ...props}) => <li className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-1`} {...props} />,
+                             strong: ({node, ...props}) => <strong className={`${isDarkMode ? 'text-white' : 'text-gray-900'} font-semibold ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`} {...props} />,
+                             em: ({node, ...props}) => <em className={`${isDarkMode ? 'text-gray-200' : 'text-gray-600'} italic`} {...props} />,
+                             code: ({node, ...props}) => {
+                               const content = props.children?.toString() || '';
+                               // LaTeX 수식인지 확인 ($$ 또는 $로 감싸진 경우)
+                               if (content.startsWith('$$') && content.endsWith('$$')) {
+                                 const math = content.slice(2, -2);
+                                 return (
+                                   <div className="my-4 flex justify-center">
+                                     <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
+                                   </div>
+                                 );
+                               } else if (content.startsWith('$') && content.endsWith('$')) {
+                                 const math = content.slice(1, -1);
+                                 return <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />;
+                               } else {
+                                 // 백틱으로 감싸진 LaTeX 수식 처리 (이전 버전 호환성)
+                                 const trimmedContent = content.trim();
+                                 if (trimmedContent.startsWith('$$') && trimmedContent.endsWith('$$')) {
+                                   const math = trimmedContent.slice(2, -2);
+                                   return (
+                                     <div className="my-4 flex justify-center">
+                                       <LatexRenderer math={math} display={true} isDarkMode={isDarkMode} />
+                                     </div>
+                                   );
+                                 } else if (trimmedContent.startsWith('$') && trimmedContent.endsWith('$')) {
+                                   const math = trimmedContent.slice(1, -1);
+                                   return <LatexRenderer math={math} display={false} isDarkMode={isDarkMode} />;
+                                 }
+                                 // 일반 코드 블록
+                                 return (
+                                   <code className={`${isDarkMode ? 'bg-blue-900/30 text-blue-200 border-blue-700' : 'bg-blue-50 text-blue-800 border-blue-200'} px-2 py-1 rounded-md text-xs font-mono border ${isDarkMode ? 'shadow-inner' : 'shadow-sm'}`} {...props} />
+                                 );
+                               }
+                             },
+                             pre: ({node, ...props}) => <pre className={`${isDarkMode ? 'bg-gray-700 text-gray-200 border-gray-600' : 'bg-gray-100 text-gray-800 border-gray-300'} p-4 rounded-lg text-xs font-mono overflow-x-auto mb-3 border shadow-sm`} {...props} />,
+                             blockquote: ({node, ...props}) => <blockquote className={`${isDarkMode ? 'border-blue-500 text-gray-300 bg-blue-900/20' : 'border-blue-300 text-gray-600 bg-blue-50'} border-l-4 pl-4 italic mb-3 py-2 rounded-r-lg`} {...props} />,
+                             table: ({node, ...props}) => <table className={`${isDarkMode ? 'border-gray-600' : 'border-gray-300'} border-collapse border w-full mb-4`} {...props} />,
+                             thead: ({node, ...props}) => <thead className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`} {...props} />,
+                             tbody: ({node, ...props}) => <tbody {...props} />,
+                             tr: ({node, ...props}) => <tr className={`${isDarkMode ? 'border-gray-600 hover:bg-gray-700/50' : 'border-gray-300 hover:bg-gray-50'}`} {...props} />,
+                             th: ({node, ...props}) => <th className={`${isDarkMode ? 'border-gray-600 text-white bg-gray-700' : 'border-gray-300 text-gray-900 bg-gray-100'} border px-3 py-2 text-left font-semibold text-sm`} {...props} />,
+                             td: ({node, ...props}) => <td className={`${isDarkMode ? 'border-gray-600 text-gray-300' : 'border-gray-300 text-gray-700'} border px-3 py-2 text-sm`} {...props} />
+                           }}
+                         >
+                           {translatedContent}
+                         </ReactMarkdown>
+                       </div>
+                     </div>
+                   </div>
                 ) : (
                   <div className="text-center py-8">
                     <Languages size={48} className={`mx-auto mb-4 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
-                    <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-4`}>
                       번역하기 버튼을 클릭하여 문서를 번역하세요.
                     </p>
+                    {!summaryForTranslation && !summary && (
+                      <div className={`${isDarkMode ? 'bg-yellow-900/20 border-yellow-700' : 'bg-yellow-50 border-yellow-200'} border rounded-lg p-3`}>
+                        <p className={`${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'} text-sm`}>
+                          💡 <strong>팁:</strong> 요약을 먼저 생성하면 더 정확한 번역 결과를 얻을 수 있습니다.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2089,32 +2433,52 @@ Solves the problem where Gradient Descent shows different speeds depending on we
 
               {/* 퀴즈 내용 */}
               <div className="flex-1 overflow-y-auto p-4">
-                <div className="space-y-6">
-                  <div>
-                    <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-lg mb-4`}>문제 1</h3>
-                    <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-4 leading-relaxed`}>
-                      데이터 전처리 과정에서 특징(feature)의 스케일링 및 시프팅을 수행하는 주요 목적이 아닌 것은 무엇입니까?
-                    </p>
-                    
-                    <div className="space-y-3">
-                      {[
-                        "알고리즘이 데이터 스케일에 민감하게 반응하는 것을 방지하기 위함입니다.",
-                        "각 특징이 동등하게 중요하게 다루어지도록 하여 특정 특징이 지배하는 것을 막기 위함입니다.",
-                        "경사 하강법(GD)의 수렴 속도를 향상시켜 더 빠른 수렴을 유도하기 위함입니다.",
-                        "훈련 데이터셋과 테스트 데이터셋에 동일한 조정을 적용하여 일관성을 유지하기 위함입니다.",
-                        "데이터의 차원 수를 줄여 과적합 문제를 근본적으로 해결하기 위함입니다."
-                      ].map((option, index) => (
-                        <button
-                          key={index}
-                          className={`w-full text-left p-3 rounded border transition-colors ${isDarkMode ? 'border-gray-600 text-gray-300 hover:border-blue-500 hover:bg-blue-500/10' : 'border-gray-300 text-gray-700 hover:border-blue-500 hover:bg-blue-50'}`}
-                        >
-                          <span className="text-blue-400 mr-3">{index + 1}.</span>
-                          {option}
-                        </button>
-                      ))}
+                {isLoadingQuiz ? (
+                  <div className="flex items-center justify-center h-32">
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                      <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>퀴즈 생성 중...</span>
                     </div>
                   </div>
-                </div>
+                ) : quiz ? (
+                  <div className="space-y-6">
+                    {quiz.questions && quiz.questions.map((question: any, index: number) => (
+                      <div key={index}>
+                        <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-lg mb-4`}>
+                          문제 {index + 1}
+                        </h3>
+                        <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-4 leading-relaxed`}>
+                          {question.question}
+                        </p>
+                        
+                        <div className="space-y-3">
+                          {question.options && question.options.map((option: string, optionIndex: number) => (
+                            <button
+                              key={optionIndex}
+                              className={`w-full text-left p-3 rounded border transition-colors ${isDarkMode ? 'border-gray-600 text-gray-300 hover:border-blue-500 hover:bg-blue-500/10' : 'border-gray-300 text-gray-700 hover:border-blue-500 hover:bg-blue-50'}`}
+                            >
+                              <span className="text-blue-400 mr-3">{optionIndex + 1}.</span>
+                              {option}
+                            </button>
+                          ))}
+                        </div>
+                        
+                        <div className="mt-4 p-3 bg-green-100 border border-green-300 rounded">
+                          <p className="text-green-800 text-sm">
+                            <strong>정답:</strong> {question.answer}번
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <BookOpen size={48} className={`mx-auto mb-4 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
+                    <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      퀴즈를 생성하는 중입니다...
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
