@@ -27,8 +27,10 @@ export const HtmlRenderer: React.FC<HtmlRendererProps> = ({ html, isDarkMode = f
         color: ${isDarkMode ? '#ffffff' : '#111827'};
         font-size: 1.5rem;
         font-weight: bold;
-        margin-bottom: 1rem;
-        margin-top: 1.5rem;
+        margin-bottom: 2rem;
+        margin-top: 3rem;
+        padding: 1rem 0;
+        border-bottom: 2px solid ${isDarkMode ? '#374151' : '#e5e7eb'};
         background: linear-gradient(to right, ${isDarkMode ? '#60a5fa' : '#2563eb'}, ${isDarkMode ? '#a78bfa' : '#7c3aed'});
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
@@ -207,6 +209,40 @@ export const HtmlRenderer: React.FC<HtmlRendererProps> = ({ html, isDarkMode = f
         }
       });
 
+      // 안전장치: 혹시 GPT가 단순 $$수식$$ 형태로 출력한 경우 자동 감지 및 변환
+      const allTextNodes = containerRef.current?.querySelectorAll('*');
+      allTextNodes?.forEach((element) => {
+        const textContent = element.textContent || '';
+        
+        // 블록 수식 패턴 감지 ($$...$$)
+        const blockMathMatches = textContent.match(/\$\$([^$]+)\$\$/g);
+        if (blockMathMatches && element.children.length === 0) {
+          blockMathMatches.forEach((match) => {
+            const math = match.slice(2, -2);
+            const mathElement = document.createElement('div');
+            mathElement.className = 'math-display';
+            mathElement.innerHTML = `<span class="latex-display" data-math="${encodeURIComponent(math)}" data-display="true"></span>`;
+            
+            // 원본 텍스트를 수식 요소로 교체
+            element.innerHTML = element.innerHTML.replace(match, mathElement.outerHTML);
+          });
+        }
+        
+        // 인라인 수식 패턴 감지 ($...$)
+        const inlineMathMatches = textContent.match(/\$([^$\n]+)\$/g);
+        if (inlineMathMatches && element.children.length === 0) {
+          inlineMathMatches.forEach((match) => {
+            const math = match.slice(1, -1);
+            const mathElement = document.createElement('span');
+            mathElement.className = 'math-inline';
+            mathElement.innerHTML = `<span class="latex-inline" data-math="${encodeURIComponent(math)}" data-display="false"></span>`;
+            
+            // 원본 텍스트를 수식 요소로 교체
+            element.innerHTML = element.innerHTML.replace(match, mathElement.outerHTML);
+          });
+        }
+      });
+
       // LaTeX 요소들을 실제로 렌더링
       const latexElements = containerRef.current?.querySelectorAll('[data-math]');
       latexElements?.forEach((element) => {
@@ -222,14 +258,18 @@ export const HtmlRenderer: React.FC<HtmlRendererProps> = ({ html, isDarkMode = f
               katex.render(decodedMath, element as HTMLElement, {
                 displayMode: display,
                 throwOnError: false,
-                errorColor: '#cc0000'
+                errorColor: '#cc0000',
+                strict: false,
+                trust: true
               });
             } catch (error) {
               console.error('KaTeX 렌더링 오류:', error);
-              element.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: monospace;">${decodedMath}</span>`;
+              // 폴백: LaTeX 원문을 $$로 감싸서 표시
+              element.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: 'Courier New', monospace; font-size: 0.9em;">$${decodedMath}$</span>`;
             }
           } else {
-            element.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: monospace;">${decodedMath}</span>`;
+            // KaTeX가 로드되지 않은 경우 폴백
+            element.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: 'Courier New', monospace; font-size: 0.9em;">$${decodedMath}$</span>`;
           }
         }
       });

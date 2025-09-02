@@ -600,16 +600,22 @@ Audience: 기본 이해가 있으나 전체 문서 읽을 시간이 부족한 �
 
 Response Format: 
 - HTML 사용
-  - 제목/소제목: <h1>,<h2>,<h3>
+  - 제목/소제목: 계층적 목차 번호 자동 생성
+    - <h1>: 1. 2. 3. 순서로 번호 매기기
+    - <h2>: 1.1, 1.2, 1.3 형태로 상위 h1 번호 이어받기
+    - <h3>: 1.1.1, 1.1.2, 1.1.3 형태로 상위 h2 번호 이어받기
+    - 예시: <h1>1. 머신러닝 기초</h1> → <h2>1.1 지도학습</h2> → <h3>1.1.1 분류</h3>
   - 핵심 키워드: <strong>
-  - 공식/수식: LaTeX 사용
+  - 공식/수식: LaTeX 사용 (반드시 지정된 HTML 태그로 감싸기)
     - 블록 수식: <div class="math-display">$$수식$$</div>
     - 인라인 수식: <span class="math-inline">$수식$</span>
-    - 모든 변수명, 기호, 수학적 표현은 반드시 LaTeX로 변환
+    - 모든 변수명, 기호, 수학적 표현은 반드시 LaTeX로 변환하고 적절한 태그로 감싸기
     - 예시:
       - R_acc → <span class="math-inline">$R_{acc}$</span>
       - n_calls → <span class="math-inline">$n_{calls}$</span>
       - x_i → <span class="math-inline">$x_{i}$</span>
+  - 절대적으로 금지: 단순 $$수식$$ 또는 $수식$ 형태로만 출력하지 말 것
+  - 반드시 <div class="math-display"> 또는 <span class="math-inline"> 태그로 감싸기
   - 코드 블록: <pre><code class="language-언어명">코드</code></pre>
   - 리스트: <ol>,<ul> 적절히 사용
 - 원본 구조 최대한 보존
@@ -774,16 +780,22 @@ Audience: 기본 이해가 있으나 전체 문서 읽을 시간이 부족한 �
 
 Response Format: 
 - HTML 사용
-  - 제목/소제목: <h1>,<h2>,<h3>
+  - 제목/소제목: 계층적 목차 번호 자동 생성
+    - <h1>: 1. 2. 3. 순서로 번호 매기기
+    - <h2>: 1.1, 1.2, 1.3 형태로 상위 h1 번호 이어받기
+    - <h3>: 1.1.1, 1.1.2, 1.1.3 형태로 상위 h2 번호 이어받기
+    - 예시: <h1>1. 머신러닝 기초</h1> → <h2>1.1 지도학습</h2> → <h3>1.1.1 분류</h3>
   - 핵심 키워드: <strong>
-  - 공식/수식: LaTeX 사용
+  - 공식/수식: LaTeX 사용 (반드시 지정된 HTML 태그로 감싸기)
     - 블록 수식: <div class="math-display">$$수식$$</div>
     - 인라인 수식: <span class="math-inline">$수식$</span>
-    - 모든 변수명, 기호, 수학적 표현은 반드시 LaTeX로 변환
+    - 모든 변수명, 기호, 수학적 표현은 반드시 LaTeX로 변환하고 적절한 태그로 감싸기
     - 예시:
       - R_acc → <span class="math-inline">$R_{acc}$</span>
       - n_calls → <span class="math-inline">$n_{calls}$</span>
       - x_i → <span class="math-inline">$x_{i}$</span>
+  - 절대적으로 금지: 단순 $$수식$$ 또는 $수식$ 형태로만 출력하지 말 것
+  - 반드시 <div class="math-display"> 또는 <span class="math-inline"> 태그로 감싸기
   - 코드 블록: <pre><code class="language-언어명">코드</code></pre>
   - 리스트: <ol>,<ul> 적절히 사용
 - 원본 구조 최대한 보존
@@ -832,11 +844,11 @@ Response Format:
           messages: [
             {
               role: 'system',
-              content: '당신은 전문 번역가입니다. 주어진 HTML 형식의 텍스트를 자연스럽고 정확하게 번역해주세요. HTML 태그는 그대로 유지하면서 내용만 번역해주세요. 특히 LaTeX 수식($$...$$ 또는 $...$)은 그대로 유지하고 번역하지 마세요.'
+              content: '당신은 전문 번역가입니다. 주어진 HTML 형식의 텍스트를 자연스럽고 정확하게 번역해주세요. HTML 태그는 그대로 유지하면서 내용만 번역해주세요. 특히 LaTeX 수식($$...$$ 또는 $...$)과 계층적 목차 번호(1., 1.1, 1.1.1 등)는 그대로 유지하고 번역하지 마세요.'
             },
             {
               role: 'user',
-              content: `다음 HTML 형식의 정리본을 ${targetLanguage}로 번역해주세요. HTML 태그(<h1>, <h2>, <strong>, <ul>, <ol> 등)는 그대로 유지하고 내용만 번역해주세요. LaTeX 수식($$...$$ 또는 $...$)은 번역하지 말고 그대로 유지해주세요:\n\n${summary}`
+              content: `다음 HTML 형식의 정리본을 ${targetLanguage}로 번역해주세요. HTML 태그(<h1>, <h2>, <strong>, <ul>, <ol> 등)는 그대로 유지하고 내용만 번역해주세요. LaTeX 수식($$...$$ 또는 $...$)과 계층적 목차 번호(1., 1.1, 1.1.1 등)는 번역하지 말고 그대로 유지해주세요:\n\n${summary}`
             }
           ],
           max_tokens: 15000,

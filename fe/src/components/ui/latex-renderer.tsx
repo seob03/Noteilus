@@ -34,26 +34,46 @@ export const LatexRenderer: React.FC<LatexRendererProps> = ({ math, display = fa
           const blockElement = document.createElement('div');
           blockElement.style.textAlign = 'center';
           blockElement.style.margin = '1rem 0';
-          katex.render(mathString, blockElement, {
-            displayMode: true,
-            throwOnError: false,
-            errorColor: '#cc0000'
-          });
+          blockElement.style.fontSize = '1.1em';
+          blockElement.style.fontWeight = '500';
+          
+          try {
+            katex.render(mathString, blockElement, {
+              displayMode: true,
+              throwOnError: false,
+              errorColor: '#cc0000',
+              strict: false,
+              trust: true
+            });
+          } catch (katexError) {
+            console.warn('KaTeX 렌더링 실패, 폴백 처리:', katexError);
+            blockElement.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: 'Courier New', monospace; font-size: 0.9em;">$${mathString}$</span>`;
+          }
+          
           containerRef.current.appendChild(blockElement);
         } else {
           // 인라인 수식
           const inlineElement = document.createElement('span');
-          katex.render(mathString, inlineElement, {
-            displayMode: false,
-            throwOnError: false,
-            errorColor: '#cc0000'
-          });
+          
+          try {
+            katex.render(mathString, inlineElement, {
+              displayMode: false,
+              throwOnError: false,
+              errorColor: '#cc0000',
+              strict: false,
+              trust: true
+            });
+          } catch (katexError) {
+            console.warn('KaTeX 인라인 렌더링 실패, 폴백 처리:', katexError);
+            inlineElement.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: 'Courier New', monospace; font-size: 0.9em;">$${mathString}$</span>`;
+          }
+          
           containerRef.current.appendChild(inlineElement);
         }
       } catch (error) {
         console.error('KaTeX 렌더링 오류:', error);
         // 폴백: 원본 텍스트 표시 (더 안전한 처리)
-        containerRef.current.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: monospace;">${mathString}</span>`;
+        containerRef.current.innerHTML = `<span style="color: ${isDarkMode ? '#ff6b6b' : '#cc0000'}; font-family: 'Courier New', monospace; font-size: 0.9em;">$${mathString}$</span>`;
       }
     };
 
