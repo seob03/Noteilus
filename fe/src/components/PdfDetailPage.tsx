@@ -130,12 +130,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     return parts.length > 0 ? parts : [content];
   };
 
-  // react-pdf 워커 설정 - public 폴더의 워커 사용
-  useEffect(() => {
-    // public 폴더의 워커 파일 사용
-    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-    console.log('PDF 워커 설정 완료:', pdfjs.GlobalWorkerOptions.workerSrc);
-  }, []);
+  // 워커 설정은 App.tsx에서 전역적으로 처리됨
   
   // PDF 상태
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);

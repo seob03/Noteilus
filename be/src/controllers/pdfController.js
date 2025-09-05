@@ -2,6 +2,11 @@ const multer = require('multer');
 const AWS = require('aws-sdk');
 const { ObjectId } = require('mongodb');
 const PdfDocument = require('../models/PdfDocument');
+const { fromPath } = require('pdf2pic');
+const sharp = require('sharp');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -36,6 +41,81 @@ class PdfController {
   constructor(db) {
     this.db = db;
     this.pdfDocument = new PdfDocument(db);
+  }
+
+  // PDF 썸네일 생성 함수
+  async generateThumbnail(pdfBuffer, userId) {
+    try {
+      console.log('썸네일 생성 함수 시작, userId:', userId);
+      
+      // 임시 디렉토리 생성
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-thumbnail-'));
+      const tempPdfPath = path.join(tempDir, 'temp.pdf');
+      console.log('임시 디렉토리 생성:', tempDir);
+
+      // PDF 버퍼를 임시 파일로 저장
+      fs.writeFileSync(tempPdfPath, pdfBuffer);
+      console.log('PDF 파일 저장 완료, 크기:', pdfBuffer.length);
+
+      // pdf2pic으로 첫 페이지를 이미지로 변환
+      console.log('pdf2pic 변환 시작...');
+      const convert = fromPath(tempPdfPath, {
+        density: 200,           // DPI 설정
+        saveFilename: "page",   // 파일명
+        savePath: tempDir,      // 저장 경로
+        format: "png",          // 포맷
+        width: 300,             // 너비
+        height: 400             // 높이
+      });
+
+      // 첫 페이지만 변환 (page: 1)
+      const result = await convert(1);
+      console.log('pdf2pic 변환 완료, 결과:', result);
+      
+      if (!result || !result.path) {
+        throw new Error('썸네일 이미지 생성 실패');
+      }
+
+      // 생성된 이미지 파일 읽기
+      const imageBuffer = fs.readFileSync(result.path);
+      console.log('이미지 파일 읽기 완료, 크기:', imageBuffer.length);
+
+      // Sharp로 이미지 최적화 (크기 조정 및 압축)
+      console.log('Sharp 이미지 최적화 시작...');
+      const thumbnailBuffer = await sharp(imageBuffer)
+        .resize(300, 400, { 
+          fit: 'inside',
+          withoutEnlargement: true 
+        })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+      console.log('Sharp 최적화 완료, 버퍼 크기:', thumbnailBuffer.length);
+
+      // S3에 썸네일 업로드
+      const thumbnailKey = `thumbnails/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}.jpg`;
+      console.log('S3 업로드 시작, 키:', thumbnailKey);
+      const uploadParams = {
+        Bucket: BUCKET_NAME,
+        Key: thumbnailKey,
+        Body: thumbnailBuffer,
+        ContentType: 'image/jpeg'
+      };
+
+      const uploadResult = await s3.upload(uploadParams).promise();
+      console.log('S3 업로드 완료, URL:', uploadResult.Location);
+
+      // 임시 파일들 정리
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      console.log('임시 파일 정리 완료');
+
+      return uploadResult.Location; // S3 URL 반환
+
+    } catch (error) {
+      console.error('썸네일 생성 에러:', error);
+      console.error('썸네일 생성 에러 상세:', error.message);
+      console.error('썸네일 생성 에러 스택:', error.stack);
+      throw error;
+    }
   }
 
   // PDF 업로드
@@ -164,11 +244,27 @@ class PdfController {
           // 3단계: S3에 파일 업로드
           const s3Result = await s3.upload(uploadParams).promise();
 
-          // 4단계: DB 업데이트 (S3 URL 추가, 상태 완료)
+          // 4단계: 썸네일 생성
+          let thumbnailUrl = null;
+          try {
+            console.log('썸네일 생성 시작...');
+            thumbnailUrl = await this.generateThumbnail(file.buffer, userId);
+            console.log('썸네일 생성 성공:', thumbnailUrl);
+          } catch (thumbnailError) {
+            console.error('썸네일 생성 실패:', thumbnailError);
+            console.error('썸네일 에러 상세:', thumbnailError.message);
+            console.error('썸네일 에러 스택:', thumbnailError.stack);
+            // 썸네일 생성 실패해도 PDF 업로드는 계속 진행
+          }
+
+          // 5단계: DB 업데이트 (S3 URL, 썸네일 URL 추가, 상태 완료)
+          console.log('DB 업데이트 시작, pdfId:', pdfId, 'thumbnailUrl:', thumbnailUrl);
           await this.pdfDocument.updateById(pdfId, {
             s3Url: s3Result.Location,
+            thumbnailUrl: thumbnailUrl,
             status: 'completed'
           });
+          console.log('DB 업데이트 완료');
 
           res.status(201).json({
             success: true,
@@ -215,16 +311,23 @@ class PdfController {
       const pdfs = await this.pdfDocument.findByUserId(userId);
 
       // 프론트엔드에서 필요한 형태로 변환
-      const formattedPdfs = pdfs.map(pdf => ({
-        _id: pdf._id.toString(),
-        id: pdf._id.toString(),
-        name: pdf.fileName,  // 실제 파일명 표시
-        originalName: pdf.fileName,
-        type: 'pdf',
-        previewImage: undefined,
-        folderId: pdf.folderId || null,
-        uploadDate: pdf.uploadDate
-      }));
+      const formattedPdfs = pdfs.map(pdf => {
+        console.log('PDF 목록 변환:', {
+          id: pdf._id.toString(),
+          name: pdf.fileName,
+          thumbnailUrl: pdf.thumbnailUrl
+        });
+        return {
+          _id: pdf._id.toString(),
+          id: pdf._id.toString(),
+          name: pdf.fileName,  // 실제 파일명 표시
+          originalName: pdf.fileName,
+          type: 'pdf',
+          previewImage: pdf.thumbnailUrl || undefined, // 썸네일 URL 사용
+          folderId: pdf.folderId || null,
+          uploadDate: pdf.uploadDate
+        };
+      });
 
       res.json(formattedPdfs);
 

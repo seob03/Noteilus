@@ -454,6 +454,25 @@ const DraggableCard = React.forwardRef<HTMLDivElement, {
           // 나머지 기존 분기 유지
           doc.type === 'folder' ? (
             <div className="w-12 h-9 md:w-16 md:h-12 bg-[#64a3d7] rounded border-l-2 border-t-2 border-[#5a95c7]"></div>
+          ) : doc.type === 'pdf' && doc.previewImage ? (
+            <img 
+              src={doc.previewImage} 
+              alt={doc.name} 
+              className="w-full h-full object-cover rounded shadow-sm" 
+              onLoad={() => console.log('썸네일 로드 성공:', doc.previewImage)}
+              onError={(e) => {
+                console.error('썸네일 로드 실패:', doc.previewImage);
+                e.currentTarget.style.display = 'none';
+                const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
+                if (nextElement) {
+                  nextElement.style.display = 'flex';
+                }
+              }}
+            />
+          ) : doc.type === 'pdf' ? (
+            <div className="w-full h-full flex items-center justify-center bg-gray-100 rounded">
+              <File size={32} className="text-gray-500" />
+            </div>
           ) : doc.previewImage ? (
             <img src={doc.previewImage} alt={doc.name} className="w-full h-full object-cover" />
           ) : (
@@ -608,13 +627,21 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
       if (pdfResponse.ok) {
         const pdfs = await pdfResponse.json();
         // PDF 데이터를 Document 형태로 변환
-        const pdfDocuments: Document[] = pdfs.map((pdf: any) => ({
-          id: pdf._id || pdf.id,
-          name: pdf.originalName || pdf.name,
-          type: 'pdf' as const,
-          previewImage: undefined,
-          folderId: pdf.folderId || null
-        }));
+        const pdfDocuments: Document[] = pdfs.map((pdf: any) => {
+          console.log('PDF 데이터 변환:', {
+            id: pdf._id || pdf.id,
+            name: pdf.originalName || pdf.name,
+            previewImage: pdf.previewImage,
+            thumbnailUrl: pdf.thumbnailUrl
+          });
+          return {
+            id: pdf._id || pdf.id,
+            name: pdf.originalName || pdf.name,
+            type: 'pdf' as const,
+            previewImage: pdf.previewImage || undefined, // 백엔드에서 보내는 썸네일 URL 사용
+            folderId: pdf.folderId || null
+          };
+        });
         documents.push(...pdfDocuments);
       }
 

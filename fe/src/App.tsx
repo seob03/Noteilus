@@ -5,6 +5,7 @@ import { SettingsPage } from "./components/SettingsPage";
 import { LoginPage } from "./components/LoginPage";
 import { PdfDetailPage } from "./components/PdfDetailPage";
 import { MainPage } from "./components/MainPage";
+import { pdfjs } from 'react-pdf';
 
 interface Document {
   id: string;
@@ -17,6 +18,12 @@ interface Document {
 type Page = "main" | "settings" | "login" | "pdf-detail";
 
 export default function App() {
+  // PDF.js 워커 설정 - 앱 시작 시 한 번만 설정
+  useEffect(() => {
+    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+    console.log('PDF 워커 설정 완료:', pdfjs.GlobalWorkerOptions.workerSrc);
+  }, []);
+
   const [currentPage, setCurrentPage] = useState<Page>("main");
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
