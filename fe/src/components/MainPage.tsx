@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Menu, Settings, ChevronRight, ChevronDown, Plus, ArrowUpDown, CheckCircle2, Move, Trash2, Search, File, Folder, FileText } from 'lucide-react';
+import { Menu, Settings, ChevronRight, ChevronDown, Plus, ArrowUpDown, CheckCircle2, Move, Trash2, Search, File, Folder } from 'lucide-react';
 import { useDrag, useDrop, DragSourceMonitor } from 'react-dnd';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -206,8 +206,7 @@ const DraggableCard = React.forwardRef<HTMLDivElement, {
   showAddMenu: boolean;
   onAddPdf: () => void;
   onAddFolder: () => void;
-  onAddNote: () => void;
-}>(({ doc, index, isDarkMode, selectionMode, selectedDocuments, onToggleSelection, onPdfClick, onFolderClick, onMainDrop, onNameDoubleClick, editingId, editingName, onNameChange, onNameKeyPress, onNameBlur, currentFolder, handleAddClick, showAddMenu, onAddPdf, onAddFolder, onAddNote }, ref) => {
+}>(({ doc, index, isDarkMode, selectionMode, selectedDocuments, onToggleSelection, onPdfClick, onFolderClick, onMainDrop, onNameDoubleClick, editingId, editingName, onNameChange, onNameKeyPress, onNameBlur, currentFolder, handleAddClick, showAddMenu, onAddPdf, onAddFolder }, ref) => {
   const anchorRef = React.useRef<HTMLDivElement | null>(null);
   const [menuPos, setMenuPos] = React.useState<{ left: number; top: number } | null>(null);
 
@@ -424,26 +423,6 @@ const DraggableCard = React.forwardRef<HTMLDivElement, {
                         </div>
                       </button>
 
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onAddNote();
-                        }}
-                        className={`flex-1 flex flex-col items-center gap-3 px-4 py-4 sm:px-6 sm:py-5 text-center rounded-lg transition-all duration-200 ${
-                          isDarkMode 
-                            ? 'text-[#efefef] hover:bg-gray-700 hover:scale-[1.02]' 
-                            : 'text-gray-700 hover:bg-gray-50 hover:scale-[1.02]'
-                        } group`}
-                      >
-                        <div className={`p-2 sm:p-3 rounded-lg flex-shrink-0 ${
-                          isDarkMode ? 'bg-green-500/10 text-green-400' : 'bg-green-50 text-green-600'
-                        } group-hover:scale-110 transition-transform`}>
-                          <FileText size={20} className="sm:w-6 sm:h-6" />
-                        </div>
-                        <div className="font-medium text-sm sm:text-base leading-tight">
-                          빈 노트<br />생성
-                        </div>
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -1372,11 +1351,6 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     setNewFolderName('');
   };
 
-  // 빈 노트 추가 (TODO: 나중에 구현)
-  const handleAddNote = () => {
-    setShowAddMenu(false);
-    toast.info('빈 노트 기능은 곧 추가될 예정입니다.');
-  };
 
   // 폴더 생성
   const handleCreateFolder = async () => {
@@ -1823,7 +1797,6 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
                 showAddMenu={showAddMenu}
                 onAddPdf={handleAddPdf}
                 onAddFolder={handleAddFolder}
-                onAddNote={handleAddNote}
               />
             ))}
           </div>
