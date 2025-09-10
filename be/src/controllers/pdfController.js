@@ -7,6 +7,8 @@ const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { exec } = require('child_process');
+const { promisify } = require('util');
 
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -15,6 +17,9 @@ const s3 = new AWS.S3({
 });
 
 const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || 'noteilus-bucket';
+
+// exec을 Promise로 변환
+const execAsync = promisify(exec);
 
 // Multer 설정 - 메모리에 파일 저장 (S3로 업로드 후 삭제)
 const storage = multer.memoryStorage();
@@ -114,6 +119,240 @@ class PdfController {
       console.error('썸네일 생성 에러:', error);
       console.error('썸네일 생성 에러 상세:', error.message);
       console.error('썸네일 생성 에러 스택:', error.stack);
+      throw error;
+    }
+  }
+
+  // SVG 썸네일 생성 함수 (Poppler 사용)
+  async generateSvgThumbnail(pdfBuffer, userId) {
+    try {
+      console.log('SVG 썸네일 생성 함수 시작, userId:', userId);
+      
+      // 임시 디렉토리 생성
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-svg-thumbnail-'));
+      const tempPdfPath = path.join(tempDir, 'temp.pdf');
+      const tempSvgPath = path.join(tempDir, 'page-1.svg');
+      console.log('임시 디렉토리 생성:', tempDir);
+
+      // PDF 버퍼를 임시 파일로 저장
+      fs.writeFileSync(tempPdfPath, pdfBuffer);
+      console.log('PDF 파일 저장 완료, 크기:', pdfBuffer.length);
+
+      // Poppler의 pdftocairo를 사용하여 SVG로 변환
+      console.log('Poppler SVG 변환 시작...');
+      try {
+        // pdftocairo -svg 명령어로 첫 페이지만 변환
+        const command = `pdftocairo -svg -f 1 -l 1 "${tempPdfPath}" "${tempSvgPath}"`;
+        console.log('실행 명령어:', command);
+        
+        const { stdout, stderr } = await execAsync(command);
+        
+        if (stderr) {
+          console.log('Poppler stderr:', stderr);
+        }
+        if (stdout) {
+          console.log('Poppler stdout:', stdout);
+        }
+        
+        console.log('Poppler SVG 변환 완료');
+      } catch (popplerError) {
+        console.error('Poppler 변환 실패:', popplerError);
+        throw new Error(`Poppler 변환 실패: ${popplerError.message}`);
+      }
+
+      // SVG 파일이 생성되었는지 확인
+      if (!fs.existsSync(tempSvgPath)) {
+        throw new Error('SVG 파일 생성 실패 - 파일이 존재하지 않음');
+      }
+
+      // 생성된 SVG 파일 읽기
+      const svgBuffer = fs.readFileSync(tempSvgPath);
+      console.log('SVG 파일 읽기 완료, 크기:', svgBuffer.length);
+
+      // SVG 파일이 비어있는지 확인
+      if (svgBuffer.length === 0) {
+        throw new Error('SVG 파일이 비어있음');
+      }
+
+      // S3에 SVG 업로드
+      const svgKey = `thumbnails/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}.svg`;
+      console.log('S3 SVG 업로드 시작, 키:', svgKey);
+      const uploadParams = {
+        Bucket: BUCKET_NAME,
+        Key: svgKey,
+        Body: svgBuffer,
+        ContentType: 'image/svg+xml'
+      };
+
+      const uploadResult = await s3.upload(uploadParams).promise();
+      console.log('S3 SVG 업로드 완료, URL:', uploadResult.Location);
+
+      // 임시 파일들 정리
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      console.log('임시 파일 정리 완료');
+
+      return uploadResult.Location; // S3 URL 반환
+
+    } catch (error) {
+      console.error('SVG 썸네일 생성 에러:', error);
+      console.error('SVG 썸네일 생성 에러 상세:', error.message);
+      console.error('SVG 썸네일 생성 에러 스택:', error.stack);
+      throw error;
+    }
+  }
+
+  // 하이브리드 썸네일 생성 함수 (래스터 + SVG)
+  async generateHybridThumbnail(pdfBuffer, userId) {
+    try {
+      console.log('하이브리드 썸네일 생성 시작, userId:', userId);
+      
+      const results = {
+        rasterThumbnailUrl: null,
+        svgThumbnailUrl: null,
+        type: 'hybrid'
+      };
+
+      // 1. 래스터 썸네일 생성 (기존 방식)
+      try {
+        console.log('래스터 썸네일 생성 시작...');
+        results.rasterThumbnailUrl = await this.generateThumbnail(pdfBuffer, userId);
+        console.log('래스터 썸네일 생성 성공:', results.rasterThumbnailUrl);
+      } catch (rasterError) {
+        console.error('래스터 썸네일 생성 실패:', rasterError);
+        // 래스터 실패해도 계속 진행
+      }
+
+      // 2. SVG 썸네일 생성 (새로운 방식)
+      try {
+        console.log('SVG 썸네일 생성 시작...');
+        results.svgThumbnailUrl = await this.generateSvgThumbnail(pdfBuffer, userId);
+        console.log('SVG 썸네일 생성 성공:', results.svgThumbnailUrl);
+      } catch (svgError) {
+        console.error('SVG 썸네일 생성 실패:', svgError);
+        // SVG 실패해도 계속 진행
+      }
+
+      // 3. 결과 검증
+      if (!results.rasterThumbnailUrl && !results.svgThumbnailUrl) {
+        throw new Error('모든 썸네일 생성 실패');
+      }
+
+      // 4. 타입 결정
+      if (results.rasterThumbnailUrl && results.svgThumbnailUrl) {
+        results.type = 'hybrid';
+      } else if (results.rasterThumbnailUrl) {
+        results.type = 'raster';
+      } else {
+        results.type = 'svg';
+      }
+
+      console.log('하이브리드 썸네일 생성 완료, 타입:', results.type);
+      return results;
+
+    } catch (error) {
+      console.error('하이브리드 썸네일 생성 에러:', error);
+      throw error;
+    }
+  }
+
+  // PDF의 모든 페이지를 SVG로 변환하는 함수
+  async generateAllPagesSvg(pdfBuffer, userId) {
+    try {
+      console.log('전체 페이지 SVG 생성 함수 시작, userId:', userId);
+      
+      // 임시 디렉토리 생성
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-all-svg-'));
+      const tempPdfPath = path.join(tempDir, 'temp.pdf');
+      console.log('임시 디렉토리 생성:', tempDir);
+
+      // PDF 버퍼를 임시 파일로 저장
+      fs.writeFileSync(tempPdfPath, pdfBuffer);
+      console.log('PDF 파일 저장 완료, 크기:', pdfBuffer.length);
+
+      // PDF 페이지 수 확인
+      const pageCountCommand = `pdfinfo "${tempPdfPath}" | grep Pages | awk '{print $2}'`;
+      const { stdout: pageCountOutput } = await execAsync(pageCountCommand);
+      const totalPages = parseInt(pageCountOutput.trim());
+      console.log('PDF 총 페이지 수:', totalPages);
+
+      if (totalPages === 0) {
+        throw new Error('PDF 페이지 수를 확인할 수 없습니다.');
+      }
+
+      const svgUrls = [];
+
+      // 각 페이지를 SVG로 변환
+      for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+        try {
+          console.log(`페이지 ${pageNum}/${totalPages} SVG 변환 시작...`);
+          
+          const tempSvgPath = path.join(tempDir, `page-${pageNum}.svg`);
+          
+          // Poppler의 pdftocairo를 사용하여 특정 페이지를 SVG로 변환
+          const command = `pdftocairo -svg -f ${pageNum} -l ${pageNum} "${tempPdfPath}" "${tempSvgPath}"`;
+          console.log(`실행 명령어:`, command);
+          
+          const { stdout, stderr } = await execAsync(command);
+          
+          if (stderr) {
+            console.log(`페이지 ${pageNum} Poppler stderr:`, stderr);
+          }
+          if (stdout) {
+            console.log(`페이지 ${pageNum} Poppler stdout:`, stdout);
+          }
+
+          // SVG 파일이 생성되었는지 확인
+          if (!fs.existsSync(tempSvgPath)) {
+            console.error(`페이지 ${pageNum} SVG 파일 생성 실패`);
+            continue;
+          }
+
+          // 생성된 SVG 파일 읽기
+          const svgBuffer = fs.readFileSync(tempSvgPath);
+          console.log(`페이지 ${pageNum} SVG 파일 읽기 완료, 크기:`, svgBuffer.length);
+
+          // SVG 파일이 비어있는지 확인
+          if (svgBuffer.length === 0) {
+            console.error(`페이지 ${pageNum} SVG 파일이 비어있음`);
+            continue;
+          }
+
+          // S3에 SVG 업로드
+          const svgKey = `pdf-pages/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}-page-${pageNum}.svg`;
+          console.log(`페이지 ${pageNum} S3 SVG 업로드 시작, 키:`, svgKey);
+          
+          const uploadParams = {
+            Bucket: BUCKET_NAME,
+            Key: svgKey,
+            Body: svgBuffer,
+            ContentType: 'image/svg+xml'
+          };
+
+          const uploadResult = await s3.upload(uploadParams).promise();
+          console.log(`페이지 ${pageNum} S3 SVG 업로드 완료, URL:`, uploadResult.Location);
+
+          svgUrls.push({
+            pageNumber: pageNum,
+            svgUrl: uploadResult.Location
+          });
+
+        } catch (pageError) {
+          console.error(`페이지 ${pageNum} SVG 생성 실패:`, pageError);
+          // 개별 페이지 실패해도 계속 진행
+        }
+      }
+
+      // 임시 파일들 정리
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      console.log('임시 파일 정리 완료');
+
+      console.log('전체 페이지 SVG 생성 완료, 성공한 페이지 수:', svgUrls.length);
+      return svgUrls;
+
+    } catch (error) {
+      console.error('전체 페이지 SVG 생성 에러:', error);
+      console.error('전체 페이지 SVG 생성 에러 상세:', error.message);
+      console.error('전체 페이지 SVG 생성 에러 스택:', error.stack);
       throw error;
     }
   }
@@ -244,34 +483,76 @@ class PdfController {
           // 3단계: S3에 파일 업로드
           const s3Result = await s3.upload(uploadParams).promise();
 
-          // 4단계: 썸네일 생성
-          let thumbnailUrl = null;
+          // 4단계: 하이브리드 썸네일 생성 (래스터 + SVG)
+          let thumbnailData = null;
           try {
-            console.log('썸네일 생성 시작...');
-            thumbnailUrl = await this.generateThumbnail(file.buffer, userId);
-            console.log('썸네일 생성 성공:', thumbnailUrl);
+            console.log('하이브리드 썸네일 생성 시작...');
+            thumbnailData = await this.generateHybridThumbnail(file.buffer, userId);
+            console.log('하이브리드 썸네일 생성 성공:', thumbnailData);
           } catch (thumbnailError) {
-            console.error('썸네일 생성 실패:', thumbnailError);
+            console.error('하이브리드 썸네일 생성 실패:', thumbnailError);
             console.error('썸네일 에러 상세:', thumbnailError.message);
             console.error('썸네일 에러 스택:', thumbnailError.stack);
             // 썸네일 생성 실패해도 PDF 업로드는 계속 진행
           }
 
-          // 5단계: DB 업데이트 (S3 URL, 썸네일 URL 추가, 상태 완료)
-          console.log('DB 업데이트 시작, pdfId:', pdfId, 'thumbnailUrl:', thumbnailUrl);
-          await this.pdfDocument.updateById(pdfId, {
+          // 5단계: 전체 페이지 SVG 생성 (PDF 뷰어용)
+          let allPagesSvg = null;
+          try {
+            console.log('전체 페이지 SVG 생성 시작...');
+            allPagesSvg = await this.generateAllPagesSvg(file.buffer, userId);
+            console.log('전체 페이지 SVG 생성 성공, 페이지 수:', allPagesSvg.length);
+          } catch (svgError) {
+            console.error('전체 페이지 SVG 생성 실패:', svgError);
+            console.error('SVG 에러 상세:', svgError.message);
+            console.error('SVG 에러 스택:', svgError.stack);
+            // SVG 생성 실패해도 PDF 업로드는 계속 진행
+          }
+
+          // 6단계: DB 업데이트 (S3 URL, 썸네일 데이터, SVG 페이지 데이터 추가, 상태 완료)
+          console.log('DB 업데이트 시작, pdfId:', pdfId, 'thumbnailData:', thumbnailData, 'allPagesSvg:', allPagesSvg);
+          const updateData = {
             s3Url: s3Result.Location,
-            thumbnailUrl: thumbnailUrl,
             status: 'completed'
-          });
+          };
+
+          // 썸네일 데이터가 있으면 추가
+          if (thumbnailData) {
+            updateData.thumbnailUrl = thumbnailData.rasterThumbnailUrl; // 기존 호환성을 위해 래스터 URL 유지
+            updateData.svgThumbnailUrl = thumbnailData.svgThumbnailUrl; // SVG URL 추가
+            updateData.thumbnailType = thumbnailData.type; // 썸네일 타입 저장
+          }
+
+          // 전체 페이지 SVG 데이터가 있으면 추가
+          if (allPagesSvg && allPagesSvg.length > 0) {
+            updateData.allPagesSvg = allPagesSvg; // 전체 페이지 SVG URL 배열 저장
+            updateData.totalPages = allPagesSvg.length; // 총 페이지 수 저장
+          }
+
+          await this.pdfDocument.updateById(pdfId, updateData);
           console.log('DB 업데이트 완료');
 
-          res.status(201).json({
+          const responseData = {
             success: true,
             pdfId: pdfId,
             fileName: originalFileName,
             s3Url: s3Result.Location
-          });
+          };
+
+          // 썸네일 데이터가 있으면 응답에 포함
+          if (thumbnailData) {
+            responseData.thumbnailUrl = thumbnailData.rasterThumbnailUrl;
+            responseData.svgThumbnailUrl = thumbnailData.svgThumbnailUrl;
+            responseData.thumbnailType = thumbnailData.type;
+          }
+
+          // 전체 페이지 SVG 데이터가 있으면 응답에 포함
+          if (allPagesSvg && allPagesSvg.length > 0) {
+            responseData.allPagesSvg = allPagesSvg;
+            responseData.totalPages = allPagesSvg.length;
+          }
+
+          res.status(201).json(responseData);
 
         } catch (error) {
           console.error('PDF 업로드 에러:', error);
@@ -315,7 +596,11 @@ class PdfController {
         console.log('PDF 목록 변환:', {
           id: pdf._id.toString(),
           name: pdf.fileName,
-          thumbnailUrl: pdf.thumbnailUrl
+          thumbnailUrl: pdf.thumbnailUrl,
+          svgThumbnailUrl: pdf.svgThumbnailUrl,
+          thumbnailType: pdf.thumbnailType,
+          allPagesSvg: pdf.allPagesSvg ? `${pdf.allPagesSvg.length} pages` : 'none',
+          totalPages: pdf.totalPages
         });
         return {
           _id: pdf._id.toString(),
@@ -323,7 +608,11 @@ class PdfController {
           name: pdf.fileName,  // 실제 파일명 표시
           originalName: pdf.fileName,
           type: 'pdf',
-          previewImage: pdf.thumbnailUrl || undefined, // 썸네일 URL 사용
+          previewImage: pdf.thumbnailUrl || undefined, // 래스터 썸네일 URL 사용 (기존 호환성)
+          svgPreviewImage: pdf.svgThumbnailUrl || undefined, // SVG 썸네일 URL 추가
+          thumbnailType: pdf.thumbnailType || 'raster', // 썸네일 타입 추가
+          allPagesSvg: pdf.allPagesSvg || undefined, // 전체 페이지 SVG URL 배열
+          totalPages: pdf.totalPages || undefined, // 총 페이지 수
           folderId: pdf.folderId || null,
           uploadDate: pdf.uploadDate
         };

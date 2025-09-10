@@ -10,20 +10,12 @@ import { toast } from 'sonner';
 import { HtmlRenderer } from './ui/html-renderer';
 import { LatexRenderer } from './ui/latex-renderer';
 
-
-// react-pdf import
-import { Document, Page, pdfjs } from 'react-pdf';
-
-
 interface PdfDetailPageProps {
   pdfId: string;
   pdfName: string;
   onBack: () => void;
   isDarkMode: boolean;
 }
-
-
-
 
 const LANGUAGE_OPTIONS = [
   { value: 'ko-to-en', label: '한국어 → 영어' },
@@ -34,6 +26,10 @@ const LANGUAGE_OPTIONS = [
   { value: 'zh-to-ko', label: '中文 → 한국어' },
 ];
 export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailPageProps) {
+  
+  // SVG PDF 뷰어 관련 상태
+  const [allPagesSvg, setAllPagesSvg] = useState<Array<{pageNumber: number, svgUrl: string}> | null>(null);
+  const [svgLoading, setSvgLoading] = useState<boolean>(false);
   
   // LaTeX 수식 파싱 헬퍼 함수
   const parseLatexContent = (content: string) => {
@@ -331,12 +327,64 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   };
   
   
+  // PDF 목록에서 SVG 데이터 가져오기
+  const fetchPdfSvgData = async () => {
+    try {
+      console.log('PDF SVG 데이터 가져오기 시작, PDF ID:', pdfId);
+      setSvgLoading(true);
+      
+      const response = await fetch('/api/pdfs', {
+        method: 'GET',
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error(`PDF 목록을 가져올 수 없습니다. (${response.status})`);
+      }
+
+      const pdfs = await response.json();
+      console.log('PDF 목록 응답:', pdfs);
+      
+      // 현재 PDF의 SVG 데이터 찾기
+      const currentPdf = pdfs.find((pdf: any) => pdf.id === pdfId);
+      console.log('현재 PDF 데이터:', currentPdf);
+      console.log('allPagesSvg 타입:', typeof currentPdf?.allPagesSvg);
+      console.log('allPagesSvg 값:', currentPdf?.allPagesSvg);
+      
+      if (currentPdf && currentPdf.allPagesSvg && Array.isArray(currentPdf.allPagesSvg) && currentPdf.allPagesSvg.length > 0) {
+        console.log('SVG 데이터 발견:', currentPdf.allPagesSvg);
+        setAllPagesSvg(currentPdf.allPagesSvg);
+        
+        // SVG 뷰어 사용 시 페이지 수 설정
+        setNumPages(currentPdf.allPagesSvg.length);
+        setTotalPages(currentPdf.allPagesSvg.length);
+        console.log('SVG 뷰어 페이지 수 설정:', currentPdf.allPagesSvg.length);
+      } else {
+        console.log('SVG 데이터 없음, react-pdf 사용');
+        console.log('이유:', {
+          currentPdf: !!currentPdf,
+          allPagesSvg: !!currentPdf?.allPagesSvg,
+          isArray: Array.isArray(currentPdf?.allPagesSvg),
+          length: currentPdf?.allPagesSvg?.length
+        });
+      }
+      
+    } catch (error) {
+      console.error('PDF SVG 데이터 가져오기 에러:', error);
+    } finally {
+      setSvgLoading(false);
+    }
+  };
+
     // PDF 다운로드 및 로드
   const loadPdf = async () => {
     try {
       console.log('PDF 로드 시작, PDF ID:', pdfId);
       setIsLoading(true);
       setError(null);
+      
+      // SVG 데이터 먼저 확인
+      await fetchPdfSvgData();
       
       const response = await fetch(`/api/pdfs/${pdfId}/download`, {
         method: 'GET',
@@ -703,6 +751,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
           
           {/* 오른쪽 버튼들 */}
           <div className="flex items-center gap-4 flex-1 justify-end">
+            
             <Button 
               variant="ghost" 
               size="sm" 
@@ -735,7 +784,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
             </div>
           )}
 
-                  {/* react-pdf Document */}
+                  {/* SVG PDF 뷰어 또는 react-pdf Document */}
                   <div 
                     className="relative inline-block" 
                     ref={containerRef}
@@ -745,49 +794,73 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                       transition: 'transform 0.2s ease-in-out'
                     }}
                   >
-                    <Document
-                    file={pdfUrl}
-                    onLoadSuccess={({ numPages }) => {
-                      console.log('PDF 로드 성공, 페이지 수:', numPages);
-                      setNumPages(numPages);
-                      setTotalPages(numPages);
-                    }}
-                    onLoadError={(error) => {
-                      console.error('PDF 로드 에러:', error);
-                      console.error('PDF 로드 에러 상세:', {
-                        message: error.message,
-                        name: error.name,
-                        stack: error.stack,
-                        pdfUrl: pdfUrl
-                      });
-                      setError(`PDF를 로드할 수 없습니다. (${error.message})`);
-                    }}
-                    onSourceError={(error) => {
-                      console.error('PDF 소스 에러:', error);
-                      setError('PDF 소스를 로드할 수 없습니다.');
-                    }}
-                    loading={
-                      <div className="text-center">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                        <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>PDF를 로드하는 중...</p>
+                    {allPagesSvg ? (
+                      // SVG 뷰어
+                      <div className="svg-pdf-viewer">
+                        {(() => {
+                          console.log('SVG 뷰어 렌더링:', { allPagesSvg, svgLoading, currentPage });
+                          return null;
+                        })()}
+                        {svgLoading ? (
+                          <div className="text-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                            <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>SVG 페이지를 로드하는 중...</p>
+                          </div>
+                        ) : (
+                          <div className="svg-page-container w-full flex items-center justify-center">
+                            {allPagesSvg.map((pageData) => (
+                              <div
+                                key={pageData.pageNumber}
+                                className={`svg-page ${pageData.pageNumber === currentPage ? 'block' : 'hidden'} ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} bg-white rounded-lg shadow border mx-auto p-4 max-w-[900px]`}
+                                style={{
+                                  maxWidth: '100%',
+                                  height: 'auto',
+                                  display: pageData.pageNumber === currentPage ? 'block' : 'none'
+                                }}
+                              >
+                                <img
+                                  src={pageData.svgUrl}
+                                  alt={`페이지 ${pageData.pageNumber}`}
+                                  style={{
+                                    width: '100%',
+                                    height: 'auto',
+                                    display: 'block'
+                                  }}
+                                  onLoad={() => {
+                                    console.log(`SVG 페이지 ${pageData.pageNumber} 로드 완료`);
+                                    if (pageData.pageNumber === currentPage) {
+                                      // 현재 페이지의 SVG가 로드되면 크기 정보 업데이트
+                                      const img = document.querySelector(`img[alt="페이지 ${pageData.pageNumber}"]`) as HTMLImageElement;
+                                      if (img) {
+                                        setPdfDimensions({
+                                          width: img.naturalWidth,
+                                          height: img.naturalHeight
+                                        });
+                                        console.log('SVG 페이지 크기:', { width: img.naturalWidth, height: img.naturalHeight });
+                                      }
+                                    }
+                                  }}
+                                  onError={(e) => {
+                                    console.error(`SVG 페이지 ${pageData.pageNumber} 로드 실패:`, e);
+                                  }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    }
-                  >
-                    <Page
-                      pageNumber={currentPage}
-                      scale={pdfScale}
-                      renderTextLayer={false}
-                      renderAnnotationLayer={false}
-                      onLoadSuccess={(page) => {
-                        const viewport = page.getViewport({ scale: 1.0 });
-                        setPdfDimensions({
-                          width: viewport.width,
-                          height: viewport.height
-                        });
-                        console.log('PDF 페이지 크기:', { width: viewport.width, height: viewport.height });
-                      }}
-                    />
-                  </Document>
+                    ) : (
+                      // SVG 데이터가 없는 경우 에러 메시지
+                      <div className="text-center p-8">
+                        <div className="text-red-500 mb-4">
+                          <FileEdit className="h-12 w-12 mx-auto mb-2" />
+                          <p className="text-lg font-medium">SVG 데이터를 찾을 수 없습니다</p>
+                        </div>
+                        <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                          이 PDF의 SVG 버전이 아직 생성되지 않았습니다.
+                        </p>
+                      </div>
+                    )}
                   </div>
            
            {/* 페이지 네비게이션 - PDF 아래에 위치 (줌 영향 받지 않음) */}
@@ -878,32 +951,37 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
             </div>
           </div>
 
-                     {/* PDF 페이지 미리보기 - 스크롤 가능 */}
+                     {/* SVG 페이지 미리보기 - 스크롤 가능 */}
            <div className="flex-1 overflow-y-auto space-y-4 pr-2 flex flex-col items-center">
-             {Array.from(new Array(numPages), (el, index) => (
-               <div key={`page_${index + 1}`} className="relative">
+             {allPagesSvg ? allPagesSvg.map((pageData) => (
+               <div key={`page_${pageData.pageNumber}`} className="relative">
                  <div
                    className={`w-full rounded cursor-pointer transition-all hover:opacity-80 ${
-                     currentPage === index + 1 ? 'ring-2 ring-blue-500' : ''
+                     currentPage === pageData.pageNumber ? 'ring-2 ring-blue-500' : ''
                    }`}
-                   onClick={() => setCurrentPage(index + 1)}
+                   onClick={() => setCurrentPage(pageData.pageNumber)}
                  >
-                   <div className="w-full max-w-[200px] mx-auto">
-                     <Document file={pdfUrl}>
-                       <Page
-                         pageNumber={index + 1}
-                         width={200}
-                         renderTextLayer={false}
-                         renderAnnotationLayer={false}
-                       />
-                     </Document>
+                   <div className="w-full max-w-[200px] mx-auto bg-white rounded shadow">
+                     <img
+                       src={pageData.svgUrl}
+                       alt={`페이지 ${pageData.pageNumber}`}
+                       style={{
+                         width: '100%',
+                         height: 'auto',
+                         maxWidth: '200px'
+                       }}
+                     />
                    </div>
                  </div>
                  <div className="absolute bottom-2 left-2 bg-black bg-opacity-70 text-white text-xs px-2 py-1 rounded">
-                   {index + 1}
+                   {pageData.pageNumber}
                  </div>
                </div>
-             ))}
+             )) : (
+               <div className="text-center p-4 text-gray-500">
+                 <p>SVG 미리보기를 사용할 수 없습니다</p>
+               </div>
+             )}
            </div>
         </div>
 
