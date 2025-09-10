@@ -46,7 +46,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     pageWidth?: number;
     pageHeight?: number;
   }> | null>(null);
-  const [showTextLayer, setShowTextLayer] = useState<boolean>(false);
+  const [showTextLayer, setShowTextLayer] = useState<boolean>(true);
   
   
   // LaTeX 수식 파싱 헬퍼 함수
@@ -762,18 +762,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
           
           {/* 오른쪽 버튼들 */}
           <div className="flex items-center gap-4 flex-1 justify-end">
-            {/* 텍스트 레이어 토글 */}
-            {textSpans && textSpans.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowTextLayer(!showTextLayer)}
-                className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'} ${showTextLayer ? 'bg-green-500/20 text-green-500' : ''}`}
-                title={showTextLayer ? '텍스트 레이어 숨기기' : '텍스트 레이어 보기'}
-              >
-                <FileEdit size={20} />
-              </Button>
-            )}
+            {/* 텍스트 레이어 기본 활성화 - 토글 제거 */}
             
             <Button 
               variant="ghost" 
@@ -819,7 +808,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                   >
                     {allPagesSvg ? (
                       // SVG 뷰어
-                      <div className="svg-pdf-viewer">
+                      <div className="svg-pdf-viewer" style={{ background: isDarkMode ? 'linear-gradient(180deg, #111214 0%, #0d0e10 100%)' : 'linear-gradient(180deg, #f6f7fb 0%, #eef1f7 100%)', padding: '24px 16px', borderRadius: 12 }}>
                         {(() => {
                           console.log('SVG 뷰어 렌더링:', { allPagesSvg, svgLoading, currentPage });
                           return null;
@@ -839,7 +828,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                               return (
                                 <div
                                   key={pageData.pageNumber}
-                                  className={`svg-page ${pageData.pageNumber === currentPage ? 'block' : 'hidden'} ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} bg-white rounded-lg shadow border mx-auto p-4 max-w-[900px]`}
+                                  className={`svg-page ${pageData.pageNumber === currentPage ? 'block' : 'hidden'} ${isDarkMode ? 'border-gray-700/60' : 'border-gray-200/80'} bg-white rounded-xl shadow-xl border mx-auto p-5 max-w-[960px]`}
                                   style={{
                                     maxWidth: '100%',
                                     height: 'auto',
@@ -878,7 +867,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                                       
                                       {/* 텍스트 레이어 (정규화 좌표를 퍼센트로 매핑) */}
                                       {showTextLayer && textSpans && textSpans.length > 0 && renderedSize && (
-                                        <div className="absolute inset-0" style={{ zIndex: 10, pointerEvents: 'auto', userSelect: 'text' }}>
+                                        <div className="absolute inset-0 text-overlay" style={{ zIndex: 10, pointerEvents: 'auto', userSelect: 'text' }}>
                                           {textSpans
                                             .filter(s => s.pageNumber === pageData.pageNumber && s.pageWidth && s.pageHeight)
                                             .map(span => (
@@ -890,7 +879,9 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                                                   top: `${(span.y0 / (span.pageHeight || 1)) * renderedSize.height}px`,
                                                   width: `${((span.x1 - span.x0) / (span.pageWidth || 1)) * renderedSize.width}px`,
                                                   height: `${((span.y1 - span.y0) / (span.pageHeight || 1)) * renderedSize.height}px`,
-                                                  color: 'rgba(0,0,0,0.2)',
+                                                  color: 'transparent',
+                                                  WebkitTextFillColor: 'transparent',
+                                                  textShadow: 'none',
                                                   lineHeight: `${(span.fontSize / (span.pageHeight || 1)) * renderedSize.height}px`,
                                                   fontSize: `${(span.fontSize / (span.pageHeight || 1)) * renderedSize.height}px`,
                                                   fontFamily: span.font || 'sans-serif',
@@ -900,18 +891,21 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                                                   WebkitUserSelect: 'text',
                                                   MozUserSelect: 'text'
                                                 }}
-                                                onMouseEnter={(e) => {
-                                                  e.currentTarget.style.color = 'rgba(0,0,0,0.6)';
-                                                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 0, 0.15)';
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                  e.currentTarget.style.color = 'rgba(0,0,0,0.2)';
-                                                  e.currentTarget.style.backgroundColor = 'transparent';
-                                                }}
                                               >
                                                 {span.text}
                                               </div>
                                             ))}
+                                          {/* Selection styling for smoother highlight */}
+                                          <style>{`
+                                            .text-overlay ::selection { 
+                                              background: ${'rgba(46, 170, 220, 0.25)'};
+                                              color: transparent;
+                                            }
+                                            .dark .text-overlay ::selection {
+                                              background: rgba(99, 179, 237, 0.25);
+                                              color: transparent;
+                                            }
+                                          `}</style>
                                         </div>
                                       )}
                                     </div>
