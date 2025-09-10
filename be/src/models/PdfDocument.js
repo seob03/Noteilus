@@ -120,6 +120,15 @@ class PdfDocument {
     if (!pdf || !pdf.aiTranslations) return null;
     return pdf.aiTranslations[targetLanguage] || null;
   }
+
+  // PDF 해시로 기존 SVG 캐시 찾기
+  async findByPdfHash(userId, pdfHash) {
+    return await this.collection.findOne({ 
+      userId: userId, 
+      pdfHash: pdfHash,
+      allPagesSvg: { $exists: true, $ne: null }
+    });
+  }
 }
 
 module.exports = PdfDocument;

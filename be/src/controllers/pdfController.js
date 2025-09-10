@@ -51,19 +51,15 @@ class PdfController {
   // PDF 썸네일 생성 함수
   async generateThumbnail(pdfBuffer, userId) {
     try {
-      console.log('썸네일 생성 함수 시작, userId:', userId);
       
       // 임시 디렉토리 생성
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-thumbnail-'));
       const tempPdfPath = path.join(tempDir, 'temp.pdf');
-      console.log('임시 디렉토리 생성:', tempDir);
 
       // PDF 버퍼를 임시 파일로 저장
       fs.writeFileSync(tempPdfPath, pdfBuffer);
-      console.log('PDF 파일 저장 완료, 크기:', pdfBuffer.length);
 
       // pdf2pic으로 첫 페이지를 이미지로 변환
-      console.log('pdf2pic 변환 시작...');
       const convert = fromPath(tempPdfPath, {
         density: 200,           // DPI 설정
         saveFilename: "page",   // 파일명
@@ -75,7 +71,6 @@ class PdfController {
 
       // 첫 페이지만 변환 (page: 1)
       const result = await convert(1);
-      console.log('pdf2pic 변환 완료, 결과:', result);
       
       if (!result || !result.path) {
         throw new Error('썸네일 이미지 생성 실패');
@@ -83,10 +78,8 @@ class PdfController {
 
       // 생성된 이미지 파일 읽기
       const imageBuffer = fs.readFileSync(result.path);
-      console.log('이미지 파일 읽기 완료, 크기:', imageBuffer.length);
 
       // Sharp로 이미지 최적화 (크기 조정 및 압축)
-      console.log('Sharp 이미지 최적화 시작...');
       const thumbnailBuffer = await sharp(imageBuffer)
         .resize(300, 400, { 
           fit: 'inside',
@@ -94,11 +87,9 @@ class PdfController {
         })
         .jpeg({ quality: 80 })
         .toBuffer();
-      console.log('Sharp 최적화 완료, 버퍼 크기:', thumbnailBuffer.length);
 
       // S3에 썸네일 업로드
       const thumbnailKey = `thumbnails/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}.jpg`;
-      console.log('S3 업로드 시작, 키:', thumbnailKey);
       const uploadParams = {
         Bucket: BUCKET_NAME,
         Key: thumbnailKey,
@@ -107,11 +98,9 @@ class PdfController {
       };
 
       const uploadResult = await s3.upload(uploadParams).promise();
-      console.log('S3 업로드 완료, URL:', uploadResult.Location);
 
       // 임시 파일들 정리
       fs.rmSync(tempDir, { recursive: true, force: true });
-      console.log('임시 파일 정리 완료');
 
       return uploadResult.Location; // S3 URL 반환
 
@@ -126,35 +115,23 @@ class PdfController {
   // SVG 썸네일 생성 함수 (Poppler 사용)
   async generateSvgThumbnail(pdfBuffer, userId) {
     try {
-      console.log('SVG 썸네일 생성 함수 시작, userId:', userId);
       
       // 임시 디렉토리 생성
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-svg-thumbnail-'));
       const tempPdfPath = path.join(tempDir, 'temp.pdf');
       const tempSvgPath = path.join(tempDir, 'page-1.svg');
-      console.log('임시 디렉토리 생성:', tempDir);
 
       // PDF 버퍼를 임시 파일로 저장
       fs.writeFileSync(tempPdfPath, pdfBuffer);
-      console.log('PDF 파일 저장 완료, 크기:', pdfBuffer.length);
 
       // Poppler의 pdftocairo를 사용하여 SVG로 변환
-      console.log('Poppler SVG 변환 시작...');
       try {
         // pdftocairo -svg 명령어로 첫 페이지만 변환
         const command = `pdftocairo -svg -f 1 -l 1 "${tempPdfPath}" "${tempSvgPath}"`;
-        console.log('실행 명령어:', command);
         
         const { stdout, stderr } = await execAsync(command);
         
-        if (stderr) {
-          console.log('Poppler stderr:', stderr);
-        }
-        if (stdout) {
-          console.log('Poppler stdout:', stdout);
-        }
         
-        console.log('Poppler SVG 변환 완료');
       } catch (popplerError) {
         console.error('Poppler 변환 실패:', popplerError);
         throw new Error(`Poppler 변환 실패: ${popplerError.message}`);
@@ -167,7 +144,6 @@ class PdfController {
 
       // 생성된 SVG 파일 읽기
       const svgBuffer = fs.readFileSync(tempSvgPath);
-      console.log('SVG 파일 읽기 완료, 크기:', svgBuffer.length);
 
       // SVG 파일이 비어있는지 확인
       if (svgBuffer.length === 0) {
@@ -176,7 +152,6 @@ class PdfController {
 
       // S3에 SVG 업로드
       const svgKey = `thumbnails/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}.svg`;
-      console.log('S3 SVG 업로드 시작, 키:', svgKey);
       const uploadParams = {
         Bucket: BUCKET_NAME,
         Key: svgKey,
@@ -185,11 +160,9 @@ class PdfController {
       };
 
       const uploadResult = await s3.upload(uploadParams).promise();
-      console.log('S3 SVG 업로드 완료, URL:', uploadResult.Location);
 
       // 임시 파일들 정리
       fs.rmSync(tempDir, { recursive: true, force: true });
-      console.log('임시 파일 정리 완료');
 
       return uploadResult.Location; // S3 URL 반환
 
@@ -204,7 +177,6 @@ class PdfController {
   // 하이브리드 썸네일 생성 함수 (래스터 + SVG)
   async generateHybridThumbnail(pdfBuffer, userId) {
     try {
-      console.log('하이브리드 썸네일 생성 시작, userId:', userId);
       
       const results = {
         rasterThumbnailUrl: null,
@@ -214,9 +186,7 @@ class PdfController {
 
       // 1. 래스터 썸네일 생성 (기존 방식)
       try {
-        console.log('래스터 썸네일 생성 시작...');
         results.rasterThumbnailUrl = await this.generateThumbnail(pdfBuffer, userId);
-        console.log('래스터 썸네일 생성 성공:', results.rasterThumbnailUrl);
       } catch (rasterError) {
         console.error('래스터 썸네일 생성 실패:', rasterError);
         // 래스터 실패해도 계속 진행
@@ -224,9 +194,7 @@ class PdfController {
 
       // 2. SVG 썸네일 생성 (새로운 방식)
       try {
-        console.log('SVG 썸네일 생성 시작...');
         results.svgThumbnailUrl = await this.generateSvgThumbnail(pdfBuffer, userId);
-        console.log('SVG 썸네일 생성 성공:', results.svgThumbnailUrl);
       } catch (svgError) {
         console.error('SVG 썸네일 생성 실패:', svgError);
         // SVG 실패해도 계속 진행
@@ -246,11 +214,59 @@ class PdfController {
         results.type = 'svg';
       }
 
-      console.log('하이브리드 썸네일 생성 완료, 타입:', results.type);
       return results;
 
     } catch (error) {
       console.error('하이브리드 썸네일 생성 에러:', error);
+      throw error;
+    }
+  }
+
+  // 단일 페이지 SVG 처리 함수 (병렬 처리용)
+  async processSinglePageSvg(tempDir, tempPdfPath, pageNum, userId) {
+    try {
+      const tempSvgPath = path.join(tempDir, `page-${pageNum}.svg`);
+      
+      // Poppler의 pdftocairo를 사용하여 특정 페이지를 SVG로 변환
+      const command = `pdftocairo -svg -f ${pageNum} -l ${pageNum} "${tempPdfPath}" "${tempSvgPath}"`;
+      
+      const { stdout, stderr } = await execAsync(command);
+      
+      // SVG 파일이 생성되었는지 확인
+      if (!fs.existsSync(tempSvgPath)) {
+        throw new Error(`SVG 파일 생성 실패`);
+      }
+
+      // 생성된 SVG 파일 읽기
+      const svgBuffer = fs.readFileSync(tempSvgPath);
+
+      // SVG 파일이 비어있는지 확인
+      if (svgBuffer.length === 0) {
+        throw new Error(`SVG 파일이 비어있음`);
+      }
+
+      // S3에 SVG 업로드 (병렬 처리 최적화)
+      const svgKey = `pdf-pages/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}-page-${pageNum}.svg`;
+      
+      const uploadParams = {
+        Bucket: BUCKET_NAME,
+        Key: svgKey,
+        Body: svgBuffer,
+        ContentType: 'image/svg+xml',
+        // S3 업로드 최적화 옵션
+        ServerSideEncryption: 'AES256',
+        CacheControl: 'public, max-age=31536000' // 1년 캐시
+      };
+
+      const uploadResult = await s3.upload(uploadParams).promise();
+
+      return {
+        pageNumber: pageNum,
+        svgUrl: uploadResult.Location
+      };
+
+    } catch (error) {
+      console.error(`페이지 ${pageNum} SVG 생성 실패:`, error);
       throw error;
     }
   }
@@ -260,93 +276,66 @@ class PdfController {
     try {
       console.log('전체 페이지 SVG 생성 함수 시작, userId:', userId);
       
+      // PDF 해시 생성 (캐싱용)
+      const crypto = require('crypto');
+      const pdfHash = crypto.createHash('md5').update(pdfBuffer).digest('hex');
+      console.log('PDF 해시:', pdfHash);
+      
+      // 기존 SVG 캐시 확인 (같은 PDF가 이미 처리되었는지)
+      const existingPdf = await this.pdfDocument.findByPdfHash(userId, pdfHash);
+      
+      if (existingPdf && existingPdf.allPagesSvg && existingPdf.allPagesSvg.length > 0) {
+        console.log('기존 SVG 캐시 발견, 재사용:', existingPdf.allPagesSvg.length, '페이지');
+        return existingPdf.allPagesSvg;
+      }
+      
       // 임시 디렉토리 생성
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-all-svg-'));
       const tempPdfPath = path.join(tempDir, 'temp.pdf');
-      console.log('임시 디렉토리 생성:', tempDir);
 
       // PDF 버퍼를 임시 파일로 저장
       fs.writeFileSync(tempPdfPath, pdfBuffer);
-      console.log('PDF 파일 저장 완료, 크기:', pdfBuffer.length);
 
       // PDF 페이지 수 확인
       const pageCountCommand = `pdfinfo "${tempPdfPath}" | grep Pages | awk '{print $2}'`;
       const { stdout: pageCountOutput } = await execAsync(pageCountCommand);
       const totalPages = parseInt(pageCountOutput.trim());
-      console.log('PDF 총 페이지 수:', totalPages);
 
       if (totalPages === 0) {
         throw new Error('PDF 페이지 수를 확인할 수 없습니다.');
       }
 
+      // 병렬 처리를 위한 배치 크기 설정 (동시에 처리할 페이지 수)
+      const BATCH_SIZE = 5; // CPU 코어 수에 따라 조정 가능
       const svgUrls = [];
 
-      // 각 페이지를 SVG로 변환
-      for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-        try {
-          console.log(`페이지 ${pageNum}/${totalPages} SVG 변환 시작...`);
-          
-          const tempSvgPath = path.join(tempDir, `page-${pageNum}.svg`);
-          
-          // Poppler의 pdftocairo를 사용하여 특정 페이지를 SVG로 변환
-          const command = `pdftocairo -svg -f ${pageNum} -l ${pageNum} "${tempPdfPath}" "${tempSvgPath}"`;
-          console.log(`실행 명령어:`, command);
-          
-          const { stdout, stderr } = await execAsync(command);
-          
-          if (stderr) {
-            console.log(`페이지 ${pageNum} Poppler stderr:`, stderr);
-          }
-          if (stdout) {
-            console.log(`페이지 ${pageNum} Poppler stdout:`, stdout);
-          }
-
-          // SVG 파일이 생성되었는지 확인
-          if (!fs.existsSync(tempSvgPath)) {
-            console.error(`페이지 ${pageNum} SVG 파일 생성 실패`);
-            continue;
-          }
-
-          // 생성된 SVG 파일 읽기
-          const svgBuffer = fs.readFileSync(tempSvgPath);
-          console.log(`페이지 ${pageNum} SVG 파일 읽기 완료, 크기:`, svgBuffer.length);
-
-          // SVG 파일이 비어있는지 확인
-          if (svgBuffer.length === 0) {
-            console.error(`페이지 ${pageNum} SVG 파일이 비어있음`);
-            continue;
-          }
-
-          // S3에 SVG 업로드
-          const svgKey = `pdf-pages/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}-page-${pageNum}.svg`;
-          console.log(`페이지 ${pageNum} S3 SVG 업로드 시작, 키:`, svgKey);
-          
-          const uploadParams = {
-            Bucket: BUCKET_NAME,
-            Key: svgKey,
-            Body: svgBuffer,
-            ContentType: 'image/svg+xml'
-          };
-
-          const uploadResult = await s3.upload(uploadParams).promise();
-          console.log(`페이지 ${pageNum} S3 SVG 업로드 완료, URL:`, uploadResult.Location);
-
-          svgUrls.push({
-            pageNumber: pageNum,
-            svgUrl: uploadResult.Location
-          });
-
-        } catch (pageError) {
-          console.error(`페이지 ${pageNum} SVG 생성 실패:`, pageError);
-          // 개별 페이지 실패해도 계속 진행
+      // 페이지를 배치로 나누어 병렬 처리
+      for (let batchStart = 1; batchStart <= totalPages; batchStart += BATCH_SIZE) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE - 1, totalPages);
+        console.log(`배치 처리: 페이지 ${batchStart}-${batchEnd}/${totalPages}`);
+        
+        // 현재 배치의 페이지들을 병렬로 처리
+        const batchPromises = [];
+        for (let pageNum = batchStart; pageNum <= batchEnd; pageNum++) {
+          batchPromises.push(this.processSinglePageSvg(tempDir, tempPdfPath, pageNum, userId));
         }
+        
+        // 배치 내 모든 페이지 처리 완료 대기
+        const batchResults = await Promise.allSettled(batchPromises);
+        
+        // 성공한 결과들만 수집
+        batchResults.forEach((result, index) => {
+          if (result.status === 'fulfilled' && result.value) {
+            svgUrls.push(result.value);
+          } else if (result.status === 'rejected') {
+            console.error(`페이지 ${batchStart + index} 처리 실패:`, result.reason);
+          }
+        });
       }
 
       // 임시 파일들 정리
       fs.rmSync(tempDir, { recursive: true, force: true });
-      console.log('임시 파일 정리 완료');
 
-      console.log('전체 페이지 SVG 생성 완료, 성공한 페이지 수:', svgUrls.length);
       return svgUrls;
 
     } catch (error) {
@@ -442,7 +431,6 @@ class PdfController {
                 }
               }
             } else {
-              console.log('Mistral API 키가 설정되지 않음, OCR 처리 건너뜀');
             }
           } catch (ocrError) {
             console.error('OCR 처리 중 오류:', ocrError);
@@ -486,9 +474,7 @@ class PdfController {
           // 4단계: 하이브리드 썸네일 생성 (래스터 + SVG)
           let thumbnailData = null;
           try {
-            console.log('하이브리드 썸네일 생성 시작...');
             thumbnailData = await this.generateHybridThumbnail(file.buffer, userId);
-            console.log('하이브리드 썸네일 생성 성공:', thumbnailData);
           } catch (thumbnailError) {
             console.error('하이브리드 썸네일 생성 실패:', thumbnailError);
             console.error('썸네일 에러 상세:', thumbnailError.message);
@@ -499,9 +485,7 @@ class PdfController {
           // 5단계: 전체 페이지 SVG 생성 (PDF 뷰어용)
           let allPagesSvg = null;
           try {
-            console.log('전체 페이지 SVG 생성 시작...');
             allPagesSvg = await this.generateAllPagesSvg(file.buffer, userId);
-            console.log('전체 페이지 SVG 생성 성공, 페이지 수:', allPagesSvg.length);
           } catch (svgError) {
             console.error('전체 페이지 SVG 생성 실패:', svgError);
             console.error('SVG 에러 상세:', svgError.message);
@@ -510,10 +494,13 @@ class PdfController {
           }
 
           // 6단계: DB 업데이트 (S3 URL, 썸네일 데이터, SVG 페이지 데이터 추가, 상태 완료)
-          console.log('DB 업데이트 시작, pdfId:', pdfId, 'thumbnailData:', thumbnailData, 'allPagesSvg:', allPagesSvg);
+          const crypto = require('crypto');
+          const pdfHash = crypto.createHash('md5').update(file.buffer).digest('hex');
+          
           const updateData = {
             s3Url: s3Result.Location,
-            status: 'completed'
+            status: 'completed',
+            pdfHash: pdfHash // PDF 해시 저장 (캐싱용)
           };
 
           // 썸네일 데이터가 있으면 추가
@@ -530,7 +517,6 @@ class PdfController {
           }
 
           await this.pdfDocument.updateById(pdfId, updateData);
-          console.log('DB 업데이트 완료');
 
           const responseData = {
             success: true,
@@ -593,15 +579,6 @@ class PdfController {
 
       // 프론트엔드에서 필요한 형태로 변환
       const formattedPdfs = pdfs.map(pdf => {
-        console.log('PDF 목록 변환:', {
-          id: pdf._id.toString(),
-          name: pdf.fileName,
-          thumbnailUrl: pdf.thumbnailUrl,
-          svgThumbnailUrl: pdf.svgThumbnailUrl,
-          thumbnailType: pdf.thumbnailType,
-          allPagesSvg: pdf.allPagesSvg ? `${pdf.allPagesSvg.length} pages` : 'none',
-          totalPages: pdf.totalPages
-        });
         return {
           _id: pdf._id.toString(),
           id: pdf._id.toString(),
@@ -725,17 +702,14 @@ class PdfController {
   // AI 정리 기능
   async getSummary(req, res) {
     try {
-      console.log('AI 정리 요청 시작 - PDF ID:', req.params.pdfId);
 
       if (!req.user) {
-        console.log('사용자 인증 실패');
         return res.status(401).json({ error: '로그인이 필요합니다.' });
       }
 
       const { pdfId } = req.params;
 
       if (!ObjectId.isValid(pdfId)) {
-        console.log('유효하지 않은 PDF ID:', pdfId);
         return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
       }
 
@@ -743,7 +717,6 @@ class PdfController {
       const pdf = await this.pdfDocument.findById(pdfId);
 
       if (!pdf) {
-        console.log('PDF를 찾을 수 없음:', pdfId);
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
       }
 
@@ -892,7 +865,6 @@ Response Format:
       console.log('AI 번역 요청 시작 - PDF ID:', req.params.pdfId);
 
       if (!req.user) {
-        console.log('사용자 인증 실패');
         return res.status(401).json({ error: '로그인이 필요합니다.' });
       }
 
@@ -900,7 +872,6 @@ Response Format:
       const { targetLanguage, sourceContent } = req.body;
 
       if (!ObjectId.isValid(pdfId)) {
-        console.log('유효하지 않은 PDF ID:', pdfId);
         return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
       }
 
@@ -913,7 +884,6 @@ Response Format:
       const pdf = await this.pdfDocument.findById(pdfId);
 
       if (!pdf) {
-        console.log('PDF를 찾을 수 없음:', pdfId);
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
       }
 
@@ -1113,14 +1083,12 @@ Response Format:
       console.log('AI 퀴즈 요청 시작 - PDF ID:', req.params.pdfId);
 
       if (!req.user) {
-        console.log('사용자 인증 실패');
         return res.status(401).json({ error: '로그인이 필요합니다.' });
       }
 
       const { pdfId } = req.params;
 
       if (!ObjectId.isValid(pdfId)) {
-        console.log('유효하지 않은 PDF ID:', pdfId);
         return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
       }
 
@@ -1128,7 +1096,6 @@ Response Format:
       const pdf = await this.pdfDocument.findById(pdfId);
 
       if (!pdf) {
-        console.log('PDF를 찾을 수 없음:', pdfId);
         return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
       }
 

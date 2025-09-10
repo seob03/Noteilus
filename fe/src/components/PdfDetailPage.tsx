@@ -30,6 +30,8 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   // SVG PDF 뷰어 관련 상태
   const [allPagesSvg, setAllPagesSvg] = useState<Array<{pageNumber: number, svgUrl: string}> | null>(null);
   const [svgLoading, setSvgLoading] = useState<boolean>(false);
+  const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set());
+  const [preloadRange] = useState<number>(2); // 현재 페이지 ±2 페이지 미리 로드
   
   // LaTeX 수식 파싱 헬퍼 함수
   const parseLatexContent = (content: string) => {
@@ -174,17 +176,6 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     // 위아래가 꽉 차도록 하되, 카드가 잘리지 않도록 비율 선택
     const newScale = Math.min(widthScale, heightScale);
     
-    console.log('크기 계산:', {
-      availableWidth,
-      availableHeight,
-      pdfWidth: pdfDimensions.width,
-      pdfHeight: pdfDimensions.height,
-      widthScale,
-      heightScale,
-      newScale,
-      mapSidebarOpen,
-      aiSidebarOpen
-    });
     
     setPdfScale(newScale);
   }, [pdfDimensions, mapSidebarOpen, aiSidebarOpen, aiSidebarWidth, mapSidebarWidth]);
@@ -239,9 +230,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
       
       // 캐시된 데이터인지 확인하고 사용자에게 알림
       if (data.fromCache) {
-        console.log('기존 저장된 요약을 불러왔습니다.');
       } else {
-        console.log('새로운 요약을 생성했습니다.');
       }
     } catch (error) {
       console.error('요약 요청 에러:', error);
@@ -257,7 +246,6 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
       
       // 먼저 요약이 있는지 확인 (summaryForTranslation 우선 사용)
       if (!summaryForTranslation) {
-        console.log('요약이 없습니다. 먼저 요약을 생성합니다.');
         toast.info('요약을 먼저 생성한 후 번역을 진행합니다.');
         await fetchSummary();
       }
@@ -283,10 +271,8 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
       
       // 캐시된 데이터인지 확인하고 사용자에게 알림
       if (data.fromCache) {
-        console.log('기존 저장된 번역을 불러왔습니다.');
         toast.success('기존 번역을 불러왔습니다.');
       } else {
-        console.log('새로운 번역을 생성했습니다.');
         toast.success('번역이 완료되었습니다.');
       }
     } catch (error) {
@@ -314,9 +300,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
       
       // 캐시된 데이터인지 확인하고 사용자에게 알림
       if (data.fromCache) {
-        console.log('기존 저장된 퀴즈를 불러왔습니다.');
       } else {
-        console.log('새로운 퀴즈를 생성했습니다.');
       }
     } catch (error) {
       console.error('퀴즈 요청 에러:', error);
@@ -330,7 +314,6 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   // PDF 목록에서 SVG 데이터 가져오기
   const fetchPdfSvgData = async () => {
     try {
-      console.log('PDF SVG 데이터 가져오기 시작, PDF ID:', pdfId);
       setSvgLoading(true);
       
       const response = await fetch('/api/pdfs', {
@@ -343,30 +326,17 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
       }
 
       const pdfs = await response.json();
-      console.log('PDF 목록 응답:', pdfs);
       
       // 현재 PDF의 SVG 데이터 찾기
       const currentPdf = pdfs.find((pdf: any) => pdf.id === pdfId);
-      console.log('현재 PDF 데이터:', currentPdf);
-      console.log('allPagesSvg 타입:', typeof currentPdf?.allPagesSvg);
-      console.log('allPagesSvg 값:', currentPdf?.allPagesSvg);
       
       if (currentPdf && currentPdf.allPagesSvg && Array.isArray(currentPdf.allPagesSvg) && currentPdf.allPagesSvg.length > 0) {
-        console.log('SVG 데이터 발견:', currentPdf.allPagesSvg);
         setAllPagesSvg(currentPdf.allPagesSvg);
         
         // SVG 뷰어 사용 시 페이지 수 설정
         setNumPages(currentPdf.allPagesSvg.length);
         setTotalPages(currentPdf.allPagesSvg.length);
-        console.log('SVG 뷰어 페이지 수 설정:', currentPdf.allPagesSvg.length);
       } else {
-        console.log('SVG 데이터 없음, react-pdf 사용');
-        console.log('이유:', {
-          currentPdf: !!currentPdf,
-          allPagesSvg: !!currentPdf?.allPagesSvg,
-          isArray: Array.isArray(currentPdf?.allPagesSvg),
-          length: currentPdf?.allPagesSvg?.length
-        });
       }
       
     } catch (error) {
@@ -379,7 +349,6 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     // PDF 다운로드 및 로드
   const loadPdf = async () => {
     try {
-      console.log('PDF 로드 시작, PDF ID:', pdfId);
       setIsLoading(true);
       setError(null);
       
@@ -391,8 +360,6 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
         credentials: 'include'
       });
 
-      console.log('PDF 다운로드 응답 상태:', response.status, response.statusText);
-      console.log('PDF 다운로드 응답 헤더:', Object.fromEntries(response.headers.entries()));
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -401,10 +368,8 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
       }
 
       const pdfBlob = await response.blob();
-      console.log('PDF Blob 생성 완료, 크기:', pdfBlob.size, '타입:', pdfBlob.type);
       
       const url = URL.createObjectURL(pdfBlob);
-      console.log('PDF URL 생성:', url);
       setPdfUrl(url);
       setIsLoading(false);
       
@@ -551,6 +516,30 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   useEffect(() => {
     setPageInputValue(currentPage.toString());
   }, [currentPage]);
+
+  // 페이지 변경 시 미리 로드할 페이지들 계산
+  useEffect(() => {
+    if (!allPagesSvg) return;
+    
+    const pagesToLoad = new Set<number>();
+    
+    // 현재 페이지와 주변 페이지들 추가
+    for (let i = Math.max(1, currentPage - preloadRange); 
+         i <= Math.min(allPagesSvg.length, currentPage + preloadRange); 
+         i++) {
+      pagesToLoad.add(i);
+    }
+    
+    // 이미 로드된 페이지들과 비교하여 새로 로드할 페이지들만 추출
+    const newPagesToLoad = Array.from(pagesToLoad).filter(pageNum => !loadedPages.has(pageNum));
+    
+    if (newPagesToLoad.length > 0) {
+      console.log('미리 로드할 페이지들:', newPagesToLoad);
+      // 실제로는 이미지 preload는 브라우저가 자동으로 처리하므로
+      // 여기서는 로드된 페이지 목록만 업데이트
+      setLoadedPages(prev => new Set([...prev, ...newPagesToLoad]));
+    }
+  }, [currentPage, allPagesSvg, preloadRange, loadedPages]);
   
 
   // AI 메시지 전송 핸들러
@@ -604,7 +593,6 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
       if (summaryForTranslation || summary) {
         handleTranslate();
       } else {
-        console.log('번역 탭 활성화: 요약이 없어서 먼저 요약을 생성합니다.');
         fetchSummary().then(() => {
           // 요약 생성 완료 후 번역 실행
           setTimeout(() => handleTranslate(), 500);
@@ -808,44 +796,55 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                           </div>
                         ) : (
                           <div className="svg-page-container w-full flex items-center justify-center">
-                            {allPagesSvg.map((pageData) => (
-                              <div
-                                key={pageData.pageNumber}
-                                className={`svg-page ${pageData.pageNumber === currentPage ? 'block' : 'hidden'} ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} bg-white rounded-lg shadow border mx-auto p-4 max-w-[900px]`}
-                                style={{
-                                  maxWidth: '100%',
-                                  height: 'auto',
-                                  display: pageData.pageNumber === currentPage ? 'block' : 'none'
-                                }}
-                              >
-                                <img
-                                  src={pageData.svgUrl}
-                                  alt={`페이지 ${pageData.pageNumber}`}
+                            {allPagesSvg.map((pageData) => {
+                              const shouldRender = pageData.pageNumber === currentPage || 
+                                                  (loadedPages.has(pageData.pageNumber) && 
+                                                   Math.abs(pageData.pageNumber - currentPage) <= preloadRange);
+                              
+                              return (
+                                <div
+                                  key={pageData.pageNumber}
+                                  className={`svg-page ${pageData.pageNumber === currentPage ? 'block' : 'hidden'} ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} bg-white rounded-lg shadow border mx-auto p-4 max-w-[900px]`}
                                   style={{
-                                    width: '100%',
+                                    maxWidth: '100%',
                                     height: 'auto',
-                                    display: 'block'
+                                    display: pageData.pageNumber === currentPage ? 'block' : 'none'
                                   }}
-                                  onLoad={() => {
-                                    console.log(`SVG 페이지 ${pageData.pageNumber} 로드 완료`);
-                                    if (pageData.pageNumber === currentPage) {
-                                      // 현재 페이지의 SVG가 로드되면 크기 정보 업데이트
-                                      const img = document.querySelector(`img[alt="페이지 ${pageData.pageNumber}"]`) as HTMLImageElement;
-                                      if (img) {
-                                        setPdfDimensions({
-                                          width: img.naturalWidth,
-                                          height: img.naturalHeight
-                                        });
-                                        console.log('SVG 페이지 크기:', { width: img.naturalWidth, height: img.naturalHeight });
-                                      }
-                                    }
-                                  }}
-                                  onError={(e) => {
-                                    console.error(`SVG 페이지 ${pageData.pageNumber} 로드 실패:`, e);
-                                  }}
-                                />
-                              </div>
-                            ))}
+                                >
+                                  {shouldRender ? (
+                                    <img
+                                      src={pageData.svgUrl}
+                                      alt={`페이지 ${pageData.pageNumber}`}
+                                      style={{
+                                        width: '100%',
+                                        height: 'auto',
+                                        display: 'block'
+                                      }}
+                                      loading={pageData.pageNumber === currentPage ? 'eager' : 'lazy'}
+                                      onLoad={() => {
+                                        if (pageData.pageNumber === currentPage) {
+                                          // 현재 페이지의 SVG가 로드되면 크기 정보 업데이트
+                                          const img = document.querySelector(`img[alt="페이지 ${pageData.pageNumber}"]`) as HTMLImageElement;
+                                          if (img) {
+                                            setPdfDimensions({
+                                              width: img.naturalWidth,
+                                              height: img.naturalHeight
+                                            });
+                                          }
+                                        }
+                                      }}
+                                      onError={(e) => {
+                                        console.error(`SVG 페이지 ${pageData.pageNumber} 로드 실패:`, e);
+                                      }}
+                                    />
+                                  ) : (
+                                    <div className="w-full h-96 bg-gray-100 flex items-center justify-center">
+                                      <p className="text-gray-500">페이지 로딩 중...</p>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
