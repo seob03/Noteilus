@@ -32,6 +32,22 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [svgLoading, setSvgLoading] = useState<boolean>(false);
   const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set());
   const [preloadRange] = useState<number>(2); // 현재 페이지 ±2 페이지 미리 로드
+  // 텍스트 레이어 상태 (PyMuPDF 결과 사용)
+  const [textSpans, setTextSpans] = useState<Array<{
+    id: string;
+    text: string;
+    x0: number; // PDF 포인트 좌표
+    y0: number;
+    x1: number;
+    y1: number;
+    fontSize: number; // 포인트
+    font: string;
+    pageNumber: number;
+    pageWidth?: number;
+    pageHeight?: number;
+  }> | null>(null);
+  const [showTextLayer, setShowTextLayer] = useState<boolean>(false);
+  
   
   // LaTeX 수식 파싱 헬퍼 함수
   const parseLatexContent = (content: string) => {
@@ -116,6 +132,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [pdfScale, setPdfScale] = useState<number>(1);
   const [pdfDimensions, setPdfDimensions] = useState<{width: number, height: number} | null>(null);
   const [containerDimensions, setContainerDimensions] = useState<{width: number, height: number}>({width: 0, height: 0});
+  const [renderedSize, setRenderedSize] = useState<{width: number, height: number} | null>(null);
   
   // PDF 콘텐츠 전용 줌 상태
   const [pdfZoom, setPdfZoom] = useState<number>(1);
@@ -337,6 +354,12 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
         setNumPages(currentPdf.allPagesSvg.length);
         setTotalPages(currentPdf.allPagesSvg.length);
       } else {
+      }
+
+      // 텍스트 스팬 데이터 설정 (PyMuPDF spans)
+      if (currentPdf && currentPdf.textSpans && Array.isArray(currentPdf.textSpans)) {
+        setTextSpans(currentPdf.textSpans);
+        setShowTextLayer(true); // 텍스트 스팬 로드 시 자동 표시
       }
       
     } catch (error) {
@@ -739,6 +762,18 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
           
           {/* 오른쪽 버튼들 */}
           <div className="flex items-center gap-4 flex-1 justify-end">
+            {/* 텍스트 레이어 토글 */}
+            {textSpans && textSpans.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowTextLayer(!showTextLayer)}
+                className={`${isDarkMode ? 'text-white hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'} ${showTextLayer ? 'bg-green-500/20 text-green-500' : ''}`}
+                title={showTextLayer ? '텍스트 레이어 숨기기' : '텍스트 레이어 보기'}
+              >
+                <FileEdit size={20} />
+              </Button>
+            )}
             
             <Button 
               variant="ghost" 
@@ -812,31 +847,74 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                                   }}
                                 >
                                   {shouldRender ? (
-                                    <img
-                                      src={pageData.svgUrl}
-                                      alt={`페이지 ${pageData.pageNumber}`}
-                                      style={{
-                                        width: '100%',
-                                        height: 'auto',
-                                        display: 'block'
-                                      }}
-                                      loading={pageData.pageNumber === currentPage ? 'eager' : 'lazy'}
-                                      onLoad={() => {
-                                        if (pageData.pageNumber === currentPage) {
-                                          // 현재 페이지의 SVG가 로드되면 크기 정보 업데이트
-                                          const img = document.querySelector(`img[alt="페이지 ${pageData.pageNumber}"]`) as HTMLImageElement;
-                                          if (img) {
-                                            setPdfDimensions({
-                                              width: img.naturalWidth,
-                                              height: img.naturalHeight
-                                            });
+                                    <div className="relative">
+                                      <img
+                                        src={pageData.svgUrl}
+                                        alt={`페이지 ${pageData.pageNumber}`}
+                                        style={{
+                                          width: '100%',
+                                          height: 'auto',
+                                          display: 'block'
+                                        }}
+                                        loading={pageData.pageNumber === currentPage ? 'eager' : 'lazy'}
+                                        onLoad={() => {
+                                          if (pageData.pageNumber === currentPage) {
+                                            // 현재 페이지의 SVG가 로드되면 크기 정보 업데이트
+                                            const img = document.querySelector(`img[alt="페이지 ${pageData.pageNumber}"]`) as HTMLImageElement;
+                                            if (img) {
+                                              setPdfDimensions({
+                                                width: img.naturalWidth,
+                                                height: img.naturalHeight
+                                              });
+                                              const rect = img.getBoundingClientRect();
+                                              setRenderedSize({ width: rect.width, height: rect.height });
+                                            }
                                           }
-                                        }
-                                      }}
-                                      onError={(e) => {
-                                        console.error(`SVG 페이지 ${pageData.pageNumber} 로드 실패:`, e);
-                                      }}
-                                    />
+                                        }}
+                                        onError={(e) => {
+                                          console.error(`SVG 페이지 ${pageData.pageNumber} 로드 실패:`, e);
+                                        }}
+                                      />
+                                      
+                                      {/* 텍스트 레이어 (정규화 좌표를 퍼센트로 매핑) */}
+                                      {showTextLayer && textSpans && textSpans.length > 0 && renderedSize && (
+                                        <div className="absolute inset-0" style={{ zIndex: 10, pointerEvents: 'auto', userSelect: 'text' }}>
+                                          {textSpans
+                                            .filter(s => s.pageNumber === pageData.pageNumber && s.pageWidth && s.pageHeight)
+                                            .map(span => (
+                                              <div
+                                                key={span.id}
+                                                className="absolute pointer-events-auto cursor-text select-text"
+                                                style={{
+                                                  left: `${(span.x0 / (span.pageWidth || 1)) * renderedSize.width}px`,
+                                                  top: `${(span.y0 / (span.pageHeight || 1)) * renderedSize.height}px`,
+                                                  width: `${((span.x1 - span.x0) / (span.pageWidth || 1)) * renderedSize.width}px`,
+                                                  height: `${((span.y1 - span.y0) / (span.pageHeight || 1)) * renderedSize.height}px`,
+                                                  color: 'rgba(0,0,0,0.2)',
+                                                  lineHeight: `${(span.fontSize / (span.pageHeight || 1)) * renderedSize.height}px`,
+                                                  fontSize: `${(span.fontSize / (span.pageHeight || 1)) * renderedSize.height}px`,
+                                                  fontFamily: span.font || 'sans-serif',
+                                                  whiteSpace: 'pre',
+                                                  overflow: 'visible',
+                                                  userSelect: 'text',
+                                                  WebkitUserSelect: 'text',
+                                                  MozUserSelect: 'text'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                  e.currentTarget.style.color = 'rgba(0,0,0,0.6)';
+                                                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 0, 0.15)';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                  e.currentTarget.style.color = 'rgba(0,0,0,0.2)';
+                                                  e.currentTarget.style.backgroundColor = 'transparent';
+                                                }}
+                                              >
+                                                {span.text}
+                                              </div>
+                                            ))}
+                                        </div>
+                                      )}
+                                    </div>
                                   ) : (
                                     <div className="w-full h-96 bg-gray-100 flex items-center justify-center">
                                       <p className="text-gray-500">페이지 로딩 중...</p>

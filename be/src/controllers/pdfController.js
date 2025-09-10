@@ -305,8 +305,10 @@ class PdfController {
         throw new Error('PDF 페이지 수를 확인할 수 없습니다.');
       }
 
-      // 병렬 처리를 위한 배치 크기 설정 (동시에 처리할 페이지 수)
-      const BATCH_SIZE = 5; // CPU 코어 수에 따라 조정 가능
+      // 병렬 처리를 위한 배치 크기 설정 (CPU 코어 수에 맞게 동적 조정)
+      const CPU_CORES = os.cpus().length;
+      const BATCH_SIZE = Math.max(2, Math.min(CPU_CORES, 8)); // 최소 2, 최대 8
+      console.log(`CPU 코어 수: ${CPU_CORES}, 배치 크기: ${BATCH_SIZE}`);
       const svgUrls = [];
 
       // 페이지를 배치로 나누어 병렬 처리
@@ -492,8 +494,25 @@ class PdfController {
             console.error('SVG 에러 스택:', svgError.stack);
             // SVG 생성 실패해도 PDF 업로드는 계속 진행
           }
+          // 6단계: PyMuPDF로 텍스트 스팬 추출 (폰트/사이즈 포함)
+          let textSpans = null;
+          try {
+            const tempTextDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-text-mupdf-'));
+            const tempPdfForText = path.join(tempTextDir, 'temp.pdf');
+            fs.writeFileSync(tempPdfForText, file.buffer);
+            const extractCmd = `python /app/src/utils/extract_text.py "${tempPdfForText}"`;
+            const { stdout } = await execAsync(extractCmd);
+            const parsed = JSON.parse(stdout);
+            if (parsed && Array.isArray(parsed.pages)) {
+              textSpans = parsed.pages.flatMap(p => Array.isArray(p.spans) ? p.spans : []);
+            }
+            fs.rmSync(tempTextDir, { recursive: true, force: true });
+          } catch (textErr) {
+            console.error('PyMuPDF 텍스트 추출 실패:', textErr);
+          }
+          
 
-          // 6단계: DB 업데이트 (S3 URL, 썸네일 데이터, SVG 페이지 데이터 추가, 상태 완료)
+          // 7단계: DB 업데이트 (S3 URL, 썸네일 데이터, SVG 페이지 데이터, 텍스트 스팬 추가, 상태 완료)
           const crypto = require('crypto');
           const pdfHash = crypto.createHash('md5').update(file.buffer).digest('hex');
           
@@ -516,6 +535,11 @@ class PdfController {
             updateData.totalPages = allPagesSvg.length; // 총 페이지 수 저장
           }
 
+          // 텍스트 스팬 데이터 저장
+          if (textSpans && textSpans.length > 0) {
+            updateData.textSpans = textSpans;
+          }
+
           await this.pdfDocument.updateById(pdfId, updateData);
 
           const responseData = {
@@ -536,6 +560,10 @@ class PdfController {
           if (allPagesSvg && allPagesSvg.length > 0) {
             responseData.allPagesSvg = allPagesSvg;
             responseData.totalPages = allPagesSvg.length;
+          }
+
+          if (textSpans && textSpans.length > 0) {
+            responseData.textSpans = textSpans;
           }
 
           res.status(201).json(responseData);
@@ -590,6 +618,7 @@ class PdfController {
           thumbnailType: pdf.thumbnailType || 'raster', // 썸네일 타입 추가
           allPagesSvg: pdf.allPagesSvg || undefined, // 전체 페이지 SVG URL 배열
           totalPages: pdf.totalPages || undefined, // 총 페이지 수
+          textSpans: pdf.textSpans || undefined,
           folderId: pdf.folderId || null,
           uploadDate: pdf.uploadDate
         };
