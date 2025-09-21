@@ -1771,10 +1771,18 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
                   이동
                 </Button>
                 <Button
-                  variant="outline"
                   size="sm"
                   onClick={deleteSelectedDocuments}
-                  className={`${isDarkMode ? 'border-red-500 text-red-400 bg-red-900/30 hover:bg-red-800/50 hover:border-red-400' : 'border-red-500 text-red-600 bg-red-50 hover:bg-red-100 hover:border-red-600'}`}
+                  className={`!bg-red-600 !hover:bg-red-700 !text-white !border-red-600 !hover:border-red-700 ${isDarkMode ? 'hover:!bg-red-700' : 'hover:!bg-red-700'}`}
+                  style={{ backgroundColor: '#dc2626', color: 'white', borderColor: '#dc2626' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#b91c1c';
+                    e.currentTarget.style.borderColor = '#b91c1c';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#dc2626';
+                    e.currentTarget.style.borderColor = '#dc2626';
+                  }}
                 >
                   <Trash2 size={14} className="mr-2" />
                   삭제
