@@ -817,11 +817,7 @@ class PdfController {
           }
         }
         
-        // 최종 응답을 DB에 저장
-        console.log(' 최종 응답 DB 저장:', fullResponse.length, '자');
-        await this.chatMessage.updateById(aiMessageId, {
-          message: fullResponse
-        });
+        // 최종 응답은 이미 [DONE] 신호에서 저장했으므로 여기서는 저장하지 않음
         
       } finally {
         reader.releaseLock();

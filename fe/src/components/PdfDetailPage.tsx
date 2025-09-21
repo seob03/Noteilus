@@ -410,8 +410,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
               
               if (data === '[DONE]') {
                 console.log('🏁 프론트엔드 완료 신호 수신');
-                // 마지막 텍스트까지 모두 표시
-                updateDisplayText(fullResponse);
+                // 완료 신호 수신 시에는 더 이상 업데이트하지 않음
                 break;
               }
 
