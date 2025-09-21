@@ -30,6 +30,12 @@ function createPdfRoutes(db) {
   router.delete('/:pdfId', (req, res) => pdfController.deletePdf(req, res));
 
   /**
+   * @route DELETE /api/pdfs
+   * @desc 여러 PDF 파일 일괄 삭제
+   */
+  router.delete('/', (req, res) => pdfController.deleteMultiplePdfs(req, res));
+
+  /**
    * @route POST /api/pdfs/:pdfId/chat
    * @desc PDF 기반 채팅 (스트림)
    */

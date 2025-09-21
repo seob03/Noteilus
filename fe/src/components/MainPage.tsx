@@ -584,6 +584,59 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
     }
   ]);
 
+  // 선택된 문서 일괄 삭제
+  const deleteSelectedDocuments = async () => {
+    if (selectedDocuments.length === 0) {
+      toast.error('삭제할 문서를 선택해주세요.');
+      return;
+    }
+
+    const pdfIds = selectedDocuments.filter(id => {
+      const doc = documents.find(d => d.id === id);
+      return doc && doc.type === 'pdf';
+    });
+
+    if (pdfIds.length === 0) {
+      toast.error('삭제할 PDF가 없습니다.');
+      return;
+    }
+
+    // 삭제 확인
+    const confirmMessage = `선택한 ${pdfIds.length}개의 PDF를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.`;
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/pdfs', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ pdfIds })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        toast.success(result.message);
+        
+        // 선택 모드 해제 및 선택 목록 초기화
+        setSelectionMode(false);
+        setSelectedDocuments([]);
+        
+        // 문서 목록 다시 로드
+        await loadDocuments();
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.error || '삭제에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('일괄 삭제 에러:', error);
+      toast.error('삭제 중 오류가 발생했습니다.');
+    }
+  };
+
   // 문서 목록 불러오기 (PDF + 폴더)
   const loadDocuments = async () => {
     if (!isLoggedIn) return;
@@ -1716,6 +1769,15 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
                 >
                   <Move size={14} className="mr-2" />
                   이동
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={deleteSelectedDocuments}
+                  className={`${isDarkMode ? 'border-red-500 text-red-400 bg-red-900/30 hover:bg-red-800/50 hover:border-red-400' : 'border-red-500 text-red-600 bg-red-50 hover:bg-red-100 hover:border-red-600'}`}
+                >
+                  <Trash2 size={14} className="mr-2" />
+                  삭제
                 </Button>
                 <Button
                   variant="outline"

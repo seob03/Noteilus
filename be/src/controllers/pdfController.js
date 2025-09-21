@@ -614,6 +614,90 @@ class PdfController {
     }
   }
 
+  // PDF 일괄 삭제
+  async deleteMultiplePdfs(req, res) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: '로그인이 필요합니다.' });
+      }
+
+      const { pdfIds } = req.body;
+
+      if (!Array.isArray(pdfIds) || pdfIds.length === 0) {
+        return res.status(400).json({ error: '삭제할 PDF ID 목록이 필요합니다.' });
+      }
+
+      // 모든 PDF ID 유효성 검사
+      const invalidIds = pdfIds.filter(id => !ObjectId.isValid(id));
+      if (invalidIds.length > 0) {
+        return res.status(400).json({ error: '유효하지 않은 PDF ID가 포함되어 있습니다.' });
+      }
+
+      const userId = req.user.googleId || req.user.kakaoId;
+      const results = {
+        success: [],
+        failed: [],
+        notFound: [],
+        unauthorized: []
+      };
+
+      // 각 PDF에 대해 삭제 처리
+      for (const pdfId of pdfIds) {
+        try {
+          // DB에서 PDF 정보 조회
+          const pdf = await this.pdfDocument.findById(pdfId);
+
+          if (!pdf) {
+            results.notFound.push(pdfId);
+            continue;
+          }
+
+          // 권한 확인
+          if (pdf.userId !== userId) {
+            results.unauthorized.push(pdfId);
+            continue;
+          }
+
+          // S3에서 파일 삭제
+          const deleteParams = {
+            Bucket: BUCKET_NAME,
+            Key: pdf.s3Key
+          };
+
+          await s3.deleteObject(deleteParams).promise();
+
+          // DB에서 메타데이터 삭제
+          await this.pdfDocument.deleteById(pdfId);
+
+          // 채팅 히스토리도 삭제
+          await this.chatMessage.deleteByPdfId(pdfId, userId);
+
+          results.success.push(pdfId);
+
+        } catch (error) {
+          console.error(`PDF ${pdfId} 삭제 에러:`, error);
+          results.failed.push({ id: pdfId, error: error.message });
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `${results.success.length}개의 PDF가 삭제되었습니다.`,
+        results: {
+          successCount: results.success.length,
+          failedCount: results.failed.length,
+          notFoundCount: results.notFound.length,
+          unauthorizedCount: results.unauthorized.length,
+          details: results
+        }
+      });
+
+    } catch (error) {
+      console.error('PDF 일괄 삭제 에러:', error);
+      res.status(500).json({ error: 'PDF 일괄 삭제에 실패했습니다.' });
+    }
+  }
+
   // PDF 텍스트 기반 채팅 기능 (스트림 방식)
   async chatWithPdf(req, res) {
     try {
