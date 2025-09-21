@@ -2,8 +2,6 @@ const multer = require('multer');
 const AWS = require('aws-sdk');
 const { ObjectId } = require('mongodb');
 const PdfDocument = require('../models/PdfDocument');
-const { fromPath } = require('pdf2pic');
-const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -23,7 +21,6 @@ const execAsync = promisify(exec);
 
 // Multer 설정 - 메모리에 파일 저장 (S3로 업로드 후 삭제)
 const storage = multer.memoryStorage();
-
 const fileFilter = (req, file, cb) => {
   // PDF 파일만 허용
   if (file.mimetype === 'application/pdf') {
@@ -48,74 +45,9 @@ class PdfController {
     this.pdfDocument = new PdfDocument(db);
   }
 
-  // PDF 썸네일 생성 함수
+  // SVG 썸네일 생성 함수 (단일 방식)
   async generateThumbnail(pdfBuffer, userId) {
     try {
-      
-      // 임시 디렉토리 생성
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-thumbnail-'));
-      const tempPdfPath = path.join(tempDir, 'temp.pdf');
-
-      // PDF 버퍼를 임시 파일로 저장
-      fs.writeFileSync(tempPdfPath, pdfBuffer);
-
-      // pdf2pic으로 첫 페이지를 이미지로 변환
-      const convert = fromPath(tempPdfPath, {
-        density: 200,           // DPI 설정
-        saveFilename: "page",   // 파일명
-        savePath: tempDir,      // 저장 경로
-        format: "png",          // 포맷
-        width: 300,             // 너비
-        height: 400             // 높이
-      });
-
-      // 첫 페이지만 변환 (page: 1)
-      const result = await convert(1);
-      
-      if (!result || !result.path) {
-        throw new Error('썸네일 이미지 생성 실패');
-      }
-
-      // 생성된 이미지 파일 읽기
-      const imageBuffer = fs.readFileSync(result.path);
-
-      // Sharp로 이미지 최적화 (크기 조정 및 압축)
-      const thumbnailBuffer = await sharp(imageBuffer)
-        .resize(300, 400, { 
-          fit: 'inside',
-          withoutEnlargement: true 
-        })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-
-      // S3에 썸네일 업로드
-      const thumbnailKey = `thumbnails/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}.jpg`;
-      const uploadParams = {
-        Bucket: BUCKET_NAME,
-        Key: thumbnailKey,
-        Body: thumbnailBuffer,
-        ContentType: 'image/jpeg'
-      };
-
-      const uploadResult = await s3.upload(uploadParams).promise();
-
-      // 임시 파일들 정리
-      fs.rmSync(tempDir, { recursive: true, force: true });
-
-      return uploadResult.Location; // S3 URL 반환
-
-    } catch (error) {
-      console.error('썸네일 생성 에러:', error);
-      console.error('썸네일 생성 에러 상세:', error.message);
-      console.error('썸네일 생성 에러 스택:', error.stack);
-      throw error;
-    }
-  }
-
-  // SVG 썸네일 생성 함수 (Poppler 사용)
-  async generateSvgThumbnail(pdfBuffer, userId) {
-    try {
-      
       // 임시 디렉토리 생성
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-svg-thumbnail-'));
       const tempPdfPath = path.join(tempDir, 'temp.pdf');
@@ -125,18 +57,9 @@ class PdfController {
       fs.writeFileSync(tempPdfPath, pdfBuffer);
 
       // Poppler의 pdftocairo를 사용하여 SVG로 변환
-      try {
-        // pdftocairo -svg 명령어로 첫 페이지만 변환
-        const command = `pdftocairo -svg -f 1 -l 1 "${tempPdfPath}" "${tempSvgPath}"`;
-        
-        const { stdout, stderr } = await execAsync(command);
-        
-        
-      } catch (popplerError) {
-        console.error('Poppler 변환 실패:', popplerError);
-        throw new Error(`Poppler 변환 실패: ${popplerError.message}`);
-      }
-
+      const command = `pdftocairo -svg -f 1 -l 1 "${tempPdfPath}" "${tempSvgPath}"`;
+      const { stdout, stderr } = await execAsync(command);
+      
       // SVG 파일이 생성되었는지 확인
       if (!fs.existsSync(tempSvgPath)) {
         throw new Error('SVG 파일 생성 실패 - 파일이 존재하지 않음');
@@ -168,59 +91,11 @@ class PdfController {
 
     } catch (error) {
       console.error('SVG 썸네일 생성 에러:', error);
-      console.error('SVG 썸네일 생성 에러 상세:', error.message);
-      console.error('SVG 썸네일 생성 에러 스택:', error.stack);
       throw error;
     }
   }
 
-  // 하이브리드 썸네일 생성 함수 (래스터 + SVG)
-  async generateHybridThumbnail(pdfBuffer, userId) {
-    try {
-      
-      const results = {
-        rasterThumbnailUrl: null,
-        svgThumbnailUrl: null,
-        type: 'hybrid'
-      };
 
-      // 1. 래스터 썸네일 생성 (기존 방식)
-      try {
-        results.rasterThumbnailUrl = await this.generateThumbnail(pdfBuffer, userId);
-      } catch (rasterError) {
-        console.error('래스터 썸네일 생성 실패:', rasterError);
-        // 래스터 실패해도 계속 진행
-      }
-
-      // 2. SVG 썸네일 생성 (새로운 방식)
-      try {
-        results.svgThumbnailUrl = await this.generateSvgThumbnail(pdfBuffer, userId);
-      } catch (svgError) {
-        console.error('SVG 썸네일 생성 실패:', svgError);
-        // SVG 실패해도 계속 진행
-      }
-
-      // 3. 결과 검증
-      if (!results.rasterThumbnailUrl && !results.svgThumbnailUrl) {
-        throw new Error('모든 썸네일 생성 실패');
-      }
-
-      // 4. 타입 결정
-      if (results.rasterThumbnailUrl && results.svgThumbnailUrl) {
-        results.type = 'hybrid';
-      } else if (results.rasterThumbnailUrl) {
-        results.type = 'raster';
-      } else {
-        results.type = 'svg';
-      }
-
-      return results;
-
-    } catch (error) {
-      console.error('하이브리드 썸네일 생성 에러:', error);
-      throw error;
-    }
-  }
 
   // 단일 페이지 SVG 처리 함수 (병렬 처리용)
   async processSinglePageSvg(tempDir, tempPdfPath, pageNum, userId) {
@@ -473,14 +348,12 @@ class PdfController {
           // 3단계: S3에 파일 업로드
           const s3Result = await s3.upload(uploadParams).promise();
 
-          // 4단계: 하이브리드 썸네일 생성 (래스터 + SVG)
-          let thumbnailData = null;
+          // 4단계: SVG 썸네일 생성
+          let thumbnailUrl = null;
           try {
-            thumbnailData = await this.generateHybridThumbnail(file.buffer, userId);
+            thumbnailUrl = await this.generateThumbnail(file.buffer, userId);
           } catch (thumbnailError) {
-            console.error('하이브리드 썸네일 생성 실패:', thumbnailError);
-            console.error('썸네일 에러 상세:', thumbnailError.message);
-            console.error('썸네일 에러 스택:', thumbnailError.stack);
+            console.error('SVG 썸네일 생성 실패:', thumbnailError);
             // 썸네일 생성 실패해도 PDF 업로드는 계속 진행
           }
 
@@ -522,11 +395,10 @@ class PdfController {
             pdfHash: pdfHash // PDF 해시 저장 (캐싱용)
           };
 
-          // 썸네일 데이터가 있으면 추가
-          if (thumbnailData) {
-            updateData.thumbnailUrl = thumbnailData.rasterThumbnailUrl; // 기존 호환성을 위해 래스터 URL 유지
-            updateData.svgThumbnailUrl = thumbnailData.svgThumbnailUrl; // SVG URL 추가
-            updateData.thumbnailType = thumbnailData.type; // 썸네일 타입 저장
+          // 썸네일 URL이 있으면 추가
+          if (thumbnailUrl) {
+            updateData.thumbnailUrl = thumbnailUrl;
+            updateData.thumbnailType = 'svg';
           }
 
           // 전체 페이지 SVG 데이터가 있으면 추가
@@ -549,11 +421,10 @@ class PdfController {
             s3Url: s3Result.Location
           };
 
-          // 썸네일 데이터가 있으면 응답에 포함
-          if (thumbnailData) {
-            responseData.thumbnailUrl = thumbnailData.rasterThumbnailUrl;
-            responseData.svgThumbnailUrl = thumbnailData.svgThumbnailUrl;
-            responseData.thumbnailType = thumbnailData.type;
+          // 썸네일 URL이 있으면 응답에 포함
+          if (thumbnailUrl) {
+            responseData.thumbnailUrl = thumbnailUrl;
+            responseData.thumbnailType = 'svg';
           }
 
           // 전체 페이지 SVG 데이터가 있으면 응답에 포함
@@ -613,9 +484,8 @@ class PdfController {
           name: pdf.fileName,  // 실제 파일명 표시
           originalName: pdf.fileName,
           type: 'pdf',
-          previewImage: pdf.thumbnailUrl || undefined, // 래스터 썸네일 URL 사용 (기존 호환성)
-          svgPreviewImage: pdf.svgThumbnailUrl || undefined, // SVG 썸네일 URL 추가
-          thumbnailType: pdf.thumbnailType || 'raster', // 썸네일 타입 추가
+        previewImage: pdf.thumbnailUrl || undefined, // SVG 썸네일 URL
+        thumbnailType: pdf.thumbnailType || 'svg', // 썸네일 타입
           allPagesSvg: pdf.allPagesSvg || undefined, // 전체 페이지 SVG URL 배열
           totalPages: pdf.totalPages || undefined, // 총 페이지 수
           textSpans: pdf.textSpans || undefined,
@@ -728,520 +598,8 @@ class PdfController {
   }
 
 
-  // AI 정리 기능
-  async getSummary(req, res) {
-    try {
 
-      if (!req.user) {
-        return res.status(401).json({ error: '로그인이 필요합니다.' });
-      }
 
-      const { pdfId } = req.params;
-
-      if (!ObjectId.isValid(pdfId)) {
-        return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
-      }
-
-      // DB에서 PDF 정보 조회
-      const pdf = await this.pdfDocument.findById(pdfId);
-
-      if (!pdf) {
-        return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
-      }
-
-      // 권한 확인 (본인의 PDF만 조회 가능)
-      const userId = req.user.googleId || req.user.kakaoId;
-      if (pdf.userId !== userId) {
-        console.log('권한 없음 - 요청자:', userId, 'PDF 소유자:', pdf.userId);
-        return res.status(403).json({ error: '조회 권한이 없습니다.' });
-      }
-
-      // OCR 텍스트가 없으면 에러
-      if (!pdf.ocrText || pdf.ocrText.trim() === '') {
-        console.log('OCR 텍스트 없음 - PDF ID:', pdfId);
-        return res.status(400).json({ error: 'OCR 텍스트가 없습니다. PDF를 다시 업로드해주세요.' });
-      }
-
-      // 기존에 저장된 정리이 있는지 확인
-      const existingSummary = await this.pdfDocument.getAISummary(pdfId);
-      if (existingSummary && existingSummary.summary) {
-        console.log('기존 저장된 정리 발견 - DB에서 반환');
-        return res.json({
-          success: true,
-          summary: existingSummary.summary,
-          fromCache: true,
-          generatedAt: existingSummary.generatedAt
-        });
-      }
-
-      console.log('새로운 정리 생성 시작 - OCR 텍스트 길이:', pdf.ocrText.length);
-
-      const openaiApiKey = process.env.OPENAI_API_KEY;
-      if (!openaiApiKey) {
-        console.log('OpenAI API 키 미설정');
-        return res.status(500).json({ error: 'OpenAI API 키가 설정되지 않았습니다.' });
-      }
-
-      console.log('OpenAI API 키 확인됨');
-
-      // OpenAI API 호출
-      console.log('OpenAI API 호출 시작 - 참고로 5-mini로 호출함');
-
-      // OCR 전처리
-      let processedOCR = pdf.ocrText
-        .replace(/`/g, "'")
-        .replace(/\b([A-Za-z]+)_([A-Za-z0-9]+)\b/g, '$$$1_{$2}$$');
-
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openaiApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-5-mini',
-          messages: [
-            {
-              role: 'system',
-              content: `
-Role: 당신은 매우 꼼꼼하고 상세한 문서 정리 전문가입니다.
-제공된 OCR 텍스트의 모든 중요한 내용을 놓치지 않고, 최대한 자세하고 완벽하게 정리해 주세요.
-
-Context: 사용자는 PDF 문서에서 OCR로 추출한 마크다운 텍스트를 제공합니다.
-텍스트는 원본 구조를 최대한 반영하며, 학습 내용만 구조적으로 이해하고 미려하게 정리하는 것이 목표입니다.
-
-Objective: 
-- OCR 텍스트를 상세하고 완벽한 정리본으로 작성
-- 원본 핵심 학습 내용과 논리적 구조 보존
-- 불필요한 정보(강의 소개, 날짜, 프로그램 안내, 반복 예시, 이미지)는 제외
-- 테이블 내용 포함 필수
-
-Style: 전문적이고 명료한 문체 사용. 정보 계층을 시각적으로 명확히 나타내 학습자가 핵심을 빠르게 파악 가능하도록 작성
-
-Tone: 객관적이고 중립적, 전문성 있는 전달
-
-Audience: 기본 이해가 있으나 전체 문서 읽을 시간이 부족한 전문가/학습자
-
-Response Format: 
-- HTML 사용
-  - 제목/소제목: 계층적 목차 번호 자동 생성
-    - <h1>: 1. 2. 3. 순서로 번호 매기기
-    - <h2>: 1.1, 1.2, 1.3 형태로 상위 h1 번호 이어받기
-    - <h3>: 1.1.1, 1.1.2, 1.1.3 형태로 상위 h2 번호 이어받기
-    - 예시: <h1>1. 머신러닝 기초</h1> → <h2>1.1 지도학습</h2> → <h3>1.1.1 분류</h3>
-  - 핵심 키워드: <strong>
-  - 공식/수식: LaTeX 사용 (반드시 지정된 HTML 태그로 감싸기)
-    - 블록 수식: <div class="math-display">$$수식$$</div>
-    - 인라인 수식: <span class="math-inline">$수식$</span>
-    - 모든 변수명, 기호, 수학적 표현은 반드시 LaTeX로 변환하고 적절한 태그로 감싸기
-    - 예시:
-      - R_acc → <span class="math-inline">$R_{acc}$</span>
-      - n_calls → <span class="math-inline">$n_{calls}$</span>
-      - x_i → <span class="math-inline">$x_{i}$</span>
-  - 절대적으로 금지: 단순 $$수식$$ 또는 $수식$ 형태로만 출력하지 말 것
-  - 반드시 <div class="math-display"> 또는 <span class="math-inline"> 태그로 감싸기
-  - 코드 블록: <pre><code class="language-언어명">코드</code></pre>
-  - 리스트: <ol>,<ul> 적절히 사용
-- 원본 구조 최대한 보존
-- 학습 내용과 관련 없는 부분 완전히 제외
-- 언어: 한국어
-
-중요: 답변 그대로 렌더링되므로 HTML로만 작성
-`
-            },
-            {
-              role: 'user',
-              content: `요약할 문서: ${processedOCR}`
-            }
-          ],
-          max_completion_tokens: 20000
-        })
-      });
-
-      console.log('line: 608 // OpenAI API 응답 상태:', response.status, response.statusText);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('OpenAI API 호출 실패:', response.status, errorText);
-        return res.status(500).json({ error: 'AI 정리 처리에 실패했습니다.' });
-      }
-
-      const result = await response.json();
-      const summary = result.choices[0].message.content;
-
-      console.log('AI 정리 완료 - 길이:', summary.length);
-
-      // DB에 정리 저장
-      await this.pdfDocument.saveAISummary(pdfId, summary);
-      console.log('정리 DB 저장 완료');
-
-      res.json({
-        success: true,
-        summary: summary,
-        fromCache: false
-      });
-
-    } catch (error) {
-      console.error('AI 정리 에러:', error);
-      res.status(500).json({ error: 'AI 정리 처리에 실패했습니다.' });
-    }
-  }
-
-  // AI 번역 기능 (정리본 기반)
-  async getTranslation(req, res) {
-    try {
-      console.log('AI 번역 요청 시작 - PDF ID:', req.params.pdfId);
-
-      if (!req.user) {
-        return res.status(401).json({ error: '로그인이 필요합니다.' });
-      }
-
-      const { pdfId } = req.params;
-      const { targetLanguage, sourceContent } = req.body;
-
-      if (!ObjectId.isValid(pdfId)) {
-        return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
-      }
-
-      if (!targetLanguage) {
-        console.log('번역 언어 미지정');
-        return res.status(400).json({ error: '번역할 언어를 지정해주세요.' });
-      }
-
-      // DB에서 PDF 정보 조회
-      const pdf = await this.pdfDocument.findById(pdfId);
-
-      if (!pdf) {
-        return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
-      }
-
-      // 권한 확인 (본인의 PDF만 조회 가능)
-      const userId = req.user.googleId || req.user.kakaoId;
-      if (pdf.userId !== userId) {
-        console.log('권한 없음 - 요청자:', userId, 'PDF 소유자:', pdf.userId);
-        return res.status(403).json({ error: '조회 권한이 없습니다.' });
-      }
-
-      // OCR 텍스트가 없으면 에러
-      if (!pdf.ocrText || pdf.ocrText.trim() === '') {
-        console.log('OCR 텍스트 없음 - PDF ID:', pdfId);
-        return res.status(400).json({ error: 'OCR 텍스트가 없습니다. PDF를 다시 업로드해주세요.' });
-      }
-
-      // 기존에 저장된 번역이 있는지 확인
-      const existingTranslation = await this.pdfDocument.getAITranslation(pdfId, targetLanguage);
-      if (existingTranslation && existingTranslation.translation) {
-        console.log('기존 저장된 번역 발견 - DB에서 반환');
-        return res.json({
-          success: true,
-          translation: existingTranslation.translation,
-          targetLanguage: targetLanguage,
-          fromCache: true,
-          generatedAt: existingTranslation.generatedAt
-        });
-      }
-
-      console.log('새로운 번역 생성 시작');
-
-      const openaiApiKey = process.env.OPENAI_API_KEY;
-      if (!openaiApiKey) {
-        console.log('OpenAI API 키 미설정');
-        return res.status(500).json({ error: 'OpenAI API 키가 설정되지 않았습니다.' });
-      }
-
-      console.log('OpenAI API 키 확인됨');
-
-      // 1단계: 정리본 확인 (프론트엔드에서 전달받은 정리본 우선 사용)
-      console.log('1단계: 정리본 확인');
-      let summary;
-
-      if (sourceContent && sourceContent.trim() !== '') {
-        console.log('프론트엔드에서 전달받은 정리본 사용');
-        summary = sourceContent;
-      } else {
-        // 프론트엔드에서 정리본을 전달하지 않은 경우, DB에서 기존 정리본 확인
-        console.log('프론트엔드 정리본 없음 - DB에서 기존 정리본 확인');
-        let existingSummary = await this.pdfDocument.getAISummary(pdfId);
-
-        if (existingSummary && existingSummary.summary) {
-          console.log('기존 정리본 발견 - 재사용');
-          summary = existingSummary.summary;
-        } else {
-          console.log('기존 정리본 없음 - 새로 생성')
-
-          const summaryResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${openaiApiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [
-                {
-                  role: 'system',
-                  content: `
-Role: 당신은 매우 꼼꼼하고 상세한 문서 정리 전문가입니다.
-제공된 OCR 텍스트의 모든 중요한 내용을 놓치지 않고, 최대한 자세하고 완벽하게 정리해 주세요.
-
-Context: 사용자는 PDF 문서에서 OCR로 추출한 마크다운 텍스트를 제공합니다.
-텍스트는 원본 구조를 최대한 반영하며, 학습 내용만 구조적으로 이해하고 미려하게 정리하는 것이 목표입니다.
-
-Objective: 
-- OCR 텍스트를 상세하고 완벽한 정리본으로 작성
-- 원본 핵심 학습 내용과 논리적 구조 보존
-- 불필요한 정보(강의 소개, 날짜, 프로그램 안내, 반복 예시, 이미지)는 제외
-- 테이블 내용 포함 필수
-
-Style: 전문적이고 명료한 문체 사용. 정보 계층을 시각적으로 명확히 나타내 학습자가 핵심을 빠르게 파악 가능하도록 작성
-
-Tone: 객관적이고 중립적, 전문성 있는 전달
-
-Audience: 기본 이해가 있으나 전체 문서 읽을 시간이 부족한 전문가/학습자
-
-Response Format: 
-- HTML 사용
-  - 제목/소제목: 계층적 목차 번호 자동 생성
-    - <h1>: 1. 2. 3. 순서로 번호 매기기
-    - <h2>: 1.1, 1.2, 1.3 형태로 상위 h1 번호 이어받기
-    - <h3>: 1.1.1, 1.1.2, 1.1.3 형태로 상위 h2 번호 이어받기
-    - 예시: <h1>1. 머신러닝 기초</h1> → <h2>1.1 지도학습</h2> → <h3>1.1.1 분류</h3>
-  - 핵심 키워드: <strong>
-  - 공식/수식: LaTeX 사용 (반드시 지정된 HTML 태그로 감싸기)
-    - 블록 수식: <div class="math-display">$$수식$$</div>
-    - 인라인 수식: <span class="math-inline">$수식$</span>
-    - 모든 변수명, 기호, 수학적 표현은 반드시 LaTeX로 변환하고 적절한 태그로 감싸기
-    - 예시:
-      - R_acc → <span class="math-inline">$R_{acc}$</span>
-      - n_calls → <span class="math-inline">$n_{calls}$</span>
-      - x_i → <span class="math-inline">$x_{i}$</span>
-  - 절대적으로 금지: 단순 $$수식$$ 또는 $수식$ 형태로만 출력하지 말 것
-  - 반드시 <div class="math-display"> 또는 <span class="math-inline"> 태그로 감싸기
-  - 코드 블록: <pre><code class="language-언어명">코드</code></pre>
-  - 리스트: <ol>,<ul> 적절히 사용
-- 원본 구조 최대한 보존
-- 학습 내용과 관련 없는 부분 완전히 제외
-- 언어: 한국어
-
-중요: 답변 그대로 렌더링되므로 HTML로만 작성
-`
-                },
-                {
-                  role: 'user',
-                  content: `정리할 문서: ${pdf.ocrText.replace(/`/g, "'")}`
-                }
-              ]
-              ,
-              max_tokens: 15000
-            })
-          });
-
-          if (!summaryResponse.ok) {
-            const errorText = await summaryResponse.text();
-            console.error('정리본 생성 실패:', summaryResponse.status, errorText);
-            return res.status(500).json({ error: 'AI 정리 처리에 실패했습니다.' });
-          }
-
-          const summaryResult = await summaryResponse.json();
-          summary = summaryResult.choices[0].message.content;
-          console.log('정리본 생성 완료 - 길이:', summary.length);
-
-          // 새로 생성된 정리본을 DB에 저장
-          await this.pdfDocument.saveAISummary(pdfId, summary);
-          console.log('정리본 DB 저장 완료');
-        }
-      }
-
-      // 2단계: 정리본을 번역
-      console.log('2단계: 정리본 번역 시작');
-      const translationResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openaiApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content: '당신은 전문 번역가입니다. 주어진 HTML 형식의 텍스트를 자연스럽고 정확하게 번역해주세요. HTML 태그는 그대로 유지하면서 내용만 번역해주세요. 특히 LaTeX 수식($$...$$ 또는 $...$)과 계층적 목차 번호(1., 1.1, 1.1.1 등)는 그대로 유지하고 번역하지 마세요.'
-            },
-            {
-              role: 'user',
-              content: `다음 HTML 형식의 정리본을 ${targetLanguage}로 번역해주세요. HTML 태그(<h1>, <h2>, <strong>, <ul>, <ol> 등)는 그대로 유지하고 내용만 번역해주세요. LaTeX 수식($$...$$ 또는 $...$)과 계층적 목차 번호(1., 1.1, 1.1.1 등)는 번역하지 말고 그대로 유지해주세요:\n\n${summary}`
-            }
-          ],
-          max_tokens: 15000,
-          temperature: 0.3
-        })
-      });
-
-      if (!translationResponse.ok) {
-        const errorText = await translationResponse.text();
-        console.error('번역 실패:', translationResponse.status, errorText);
-        return res.status(500).json({ error: 'AI 번역 처리에 실패했습니다.' });
-      }
-
-      const translationResult = await translationResponse.json();
-      const translation = translationResult.choices[0].message.content;
-
-      console.log('번역 완료 - 길이:', translation.length);
-
-      // DB에 번역 저장
-      await this.pdfDocument.saveAITranslation(pdfId, targetLanguage, translation);
-      console.log('번역 DB 저장 완료');
-
-      res.json({
-        success: true,
-        translation: translation,
-        targetLanguage: targetLanguage,
-        fromCache: false
-      });
-
-    } catch (error) {
-      console.error('AI 번역 에러:', error);
-      res.status(500).json({ error: 'AI 번역 처리에 실패했습니다.' });
-    }
-  }
-
-  // AI 퀴즈 생성 기능
-  async getQuiz(req, res) {
-    try {
-      console.log('AI 퀴즈 요청 시작 - PDF ID:', req.params.pdfId);
-
-      if (!req.user) {
-        return res.status(401).json({ error: '로그인이 필요합니다.' });
-      }
-
-      const { pdfId } = req.params;
-
-      if (!ObjectId.isValid(pdfId)) {
-        return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
-      }
-
-      // DB에서 PDF 정보 조회
-      const pdf = await this.pdfDocument.findById(pdfId);
-
-      if (!pdf) {
-        return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
-      }
-
-      // 권한 확인 (본인의 PDF만 조회 가능)
-      const userId = req.user.googleId || req.user.kakaoId;
-      if (pdf.userId !== userId) {
-        console.log('권한 없음 - 요청자:', userId, 'PDF 소유자:', pdf.userId);
-        return res.status(403).json({ error: '조회 권한이 없습니다.' });
-      }
-
-      // OCR 텍스트가 없으면 에러
-      if (!pdf.ocrText || pdf.ocrText.trim() === '') {
-        console.log('OCR 텍스트 없음 - PDF ID:', pdfId);
-        return res.status(400).json({ error: 'OCR 텍스트가 없습니다. PDF를 다시 업로드해주세요.' });
-      }
-
-      // 기존에 저장된 퀴즈가 있는지 확인
-      const existingQuiz = await this.pdfDocument.getAIQuiz(pdfId);
-      if (existingQuiz && existingQuiz.quiz) {
-        console.log('기존 저장된 퀴즈 발견 - DB에서 반환');
-        return res.json({
-          success: true,
-          quiz: existingQuiz.quiz,
-          fromCache: true,
-          generatedAt: existingQuiz.generatedAt
-        });
-      }
-
-      console.log('새로운 퀴즈 생성 시작 - OCR 텍스트 길이:', pdf.ocrText.length);
-
-      const openaiApiKey = process.env.OPENAI_API_KEY;
-      if (!openaiApiKey) {
-        console.log('OpenAI API 키 미설정');
-        return res.status(500).json({ error: 'OpenAI API 키가 설정되지 않았습니다.' });
-      }
-
-      console.log('OpenAI API 키 확인됨');
-
-      // OpenAI API 호출
-      console.log('OpenAI API 호출 시작');
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openaiApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content: '당신은 교육 전문가입니다. 주어진 문서를 바탕으로 핵심적인 객관식 문제 3개를 생성해주세요. 각 문제는 4개의 보기를 가지며, 정답은 1번부터 4번까지의 번호로 표시해주세요. JSON 형식으로 응답해주세요.'
-            },
-            {
-              role: 'user',
-              content: `다음 문서를 바탕으로 객관식 문제 3개를 생성해주세요. JSON 형식으로 응답해주세요:\n\n${pdf.ocrText}`
-            }
-          ],
-          max_tokens: 15000,
-          temperature: 0.5
-        })
-      });
-
-      console.log('OpenAI API 응답 상태:', response.status, response.statusText);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('OpenAI API 호출 실패:', response.status, errorText);
-        return res.status(500).json({ error: 'AI 퀴즈 생성에 실패했습니다.' });
-      }
-
-      const result = await response.json();
-      const quizContent = result.choices[0].message.content;
-
-      console.log('AI 퀴즈 응답 내용:', quizContent.substring(0, 200) + '...');
-
-      // JSON 파싱 시도 (마크다운 코드 블록 처리)
-      let quiz;
-      try {
-        // 마크다운 코드 블록 제거
-        let cleanContent = quizContent.trim();
-        if (cleanContent.startsWith('```json')) {
-          cleanContent = cleanContent.replace(/^```json\s*/, '');
-        }
-        if (cleanContent.startsWith('```')) {
-          cleanContent = cleanContent.replace(/^```\s*/, '');
-        }
-        if (cleanContent.endsWith('```')) {
-          cleanContent = cleanContent.replace(/\s*```$/, '');
-        }
-
-        console.log('정리된 퀴즈 내용:', cleanContent.substring(0, 200) + '...');
-        quiz = JSON.parse(cleanContent);
-        console.log('퀴즈 JSON 파싱 성공');
-      } catch (parseError) {
-        console.error('퀴즈 JSON 파싱 실패:', parseError);
-        console.error('원본 내용:', quizContent);
-        return res.status(500).json({ error: '퀴즈 형식이 올바르지 않습니다.' });
-      }
-
-      console.log('AI 퀴즈 생성 완료 - 문제 수:', quiz.questions ? quiz.questions.length : 0);
-
-      // DB에 퀴즈 저장
-      await this.pdfDocument.saveAIQuiz(pdfId, quiz);
-      console.log('퀴즈 DB 저장 완료');
-
-      res.json({
-        success: true,
-        quiz: quiz,
-        fromCache: false
-      });
-
-    } catch (error) {
-      console.error('AI 퀴즈 에러:', error);
-      res.status(500).json({ error: 'AI 퀴즈 생성에 실패했습니다.' });
-    }
-  }
 }
 
 module.exports = { PdfController };

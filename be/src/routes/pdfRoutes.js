@@ -30,23 +30,6 @@ function createPdfRoutes(db) {
   router.delete('/:pdfId', (req, res) => pdfController.deletePdf(req, res));
 
 
-  /**
-   * @route GET /api/pdfs/:pdfId/summary
-   * @desc 특정 PDF의 AI 요약
-   */
-  router.get('/:pdfId/summary', (req, res) => pdfController.getSummary(req, res));
-
-  /**
-   * @route POST /api/pdfs/:pdfId/translate
-   * @desc 특정 PDF의 AI 번역
-   */
-  router.post('/:pdfId/translate', (req, res) => pdfController.getTranslation(req, res));
-
-  /**
-   * @route GET /api/pdfs/:pdfId/quiz
-   * @desc 특정 PDF의 AI 퀴즈 생성
-   */
-  router.get('/:pdfId/quiz', (req, res) => pdfController.getQuiz(req, res));
 
   return router;
 }

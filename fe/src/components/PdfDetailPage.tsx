@@ -31,7 +31,8 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [allPagesSvg, setAllPagesSvg] = useState<Array<{pageNumber: number, svgUrl: string}> | null>(null);
   const [svgLoading, setSvgLoading] = useState<boolean>(false);
   const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set());
-  const [preloadRange] = useState<number>(2); // 현재 페이지 ±2 페이지 미리 로드
+  const [preloadRange] = useState<number>(2); // 현재 페이지 +-2 페이지 미리 로드
+
   // 텍스트 레이어 상태 (PyMuPDF 결과 사용)
   const [textSpans, setTextSpans] = useState<Array<{
     id: string;
