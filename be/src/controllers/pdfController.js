@@ -2,6 +2,7 @@ const multer = require('multer');
 const AWS = require('aws-sdk');
 const { ObjectId } = require('mongodb');
 const PdfDocument = require('../models/PdfDocument');
+const ChatMessage = require('../models/ChatMessage');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -43,6 +44,75 @@ class PdfController {
   constructor(db) {
     this.db = db;
     this.pdfDocument = new PdfDocument(db);
+    this.chatMessage = new ChatMessage(db);
+  }
+
+  // OCR 처리 함수
+  async processOCR(pdfBuffer) {
+    try {
+      const mistralApiKey = process.env.MISTRAL_API_KEY;
+      if (!mistralApiKey) {
+        return '';
+      }
+
+      // PDF를 base64로 인코딩
+      const base64Pdf = pdfBuffer.toString('base64');
+      
+      // Mistral AI OCR API 호출
+      const response = await fetch('https://api.mistral.ai/v1/ocr', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${mistralApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: "mistral-ocr-latest",
+          document: {
+            type: "document_url",
+            document_url: `data:application/pdf;base64,${base64Pdf}`
+          },
+          include_image_base64: true
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        // OCR 결과에서 모든 페이지의 markdown 텍스트를 추출
+        if (result.pages && result.pages.length > 0) {
+          return result.pages.map(page => page.markdown || '').join('\n\n');
+        }
+      } else {
+        const errorText = await response.text();
+        console.error('OCR 처리 실패 - 상태:', response.status);
+        console.error('OCR 처리 실패 - 응답:', errorText);
+      }
+      
+      return '';
+    } catch (error) {
+      console.error('OCR 처리 중 오류:', error);
+      return '';
+    }
+  }
+
+  // 텍스트 스팬 추출 함수
+  async extractTextSpans(pdfBuffer) {
+    try {
+      const tempTextDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-text-mupdf-'));
+      const tempPdfForText = path.join(tempTextDir, 'temp.pdf');
+      fs.writeFileSync(tempPdfForText, pdfBuffer);
+      const extractCmd = `python /app/src/utils/extract_text.py "${tempPdfForText}"`;
+      const { stdout } = await execAsync(extractCmd);
+      const parsed = JSON.parse(stdout);
+      fs.rmSync(tempTextDir, { recursive: true, force: true });
+      
+      if (parsed && Array.isArray(parsed.pages)) {
+        return parsed.pages.flatMap(p => Array.isArray(p.spans) ? p.spans : []);
+      }
+      return [];
+    } catch (error) {
+      console.error('PyMuPDF 텍스트 추출 실패:', error);
+      return [];
+    }
   }
 
   // SVG 썸네일 생성 함수 (단일 방식)
@@ -263,136 +333,79 @@ class PdfController {
           // S3에 업로드할 파일명 생성
           const fileName = `pdfs/${userId}/${Date.now()}-${Math.round(Math.random() * 1E9)}.pdf`;
 
-          // Mistral Document AI로 OCR 작업 시작
-          let ocrText = '';
-          try {
-            const mistralApiKey = process.env.MISTRAL_API_KEY;
-            if (mistralApiKey) {
-              // PDF를 base64로 인코딩
-              const base64Pdf = file.buffer.toString('base64');
-              // Mistral AI OCR API 호출
-              const response = await fetch('https://api.mistral.ai/v1/ocr', {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${mistralApiKey}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  model: "mistral-ocr-latest",
-                  document: {
-                    type: "document_url",
-                    document_url: `data:application/pdf;base64,${base64Pdf}`
-                  },
-                  include_image_base64: true
-                })
-              });
-
-              if (response.ok) {
-                const result = await response.json();
-                // OCR 결과에서 모든 페이지의 markdown 텍스트를 추출
-                if (result.pages && result.pages.length > 0) {
-                  ocrText = result.pages.map(page => page.markdown || '').join('\n\n');
-                }
-                // console.log('OCR 응답 전체 구조:', JSON.stringify(result, null, 2));
-              } else {
-                const errorText = await response.text();
-                console.error('OCR 처리 실패 - 상태:', response.status);
-                console.error('OCR 처리 실패 - 응답:', errorText);
-
-                // JSON 파싱 시도
-                try {
-                  const errorJson = JSON.parse(errorText);
-                  console.error('OCR 처리 실패 - JSON:', errorJson);
-                } catch (parseError) {
-                  console.error('OCR 처리 실패 - 텍스트 응답:', errorText);
-                }
-              }
-            } else {
-            }
-          } catch (ocrError) {
-            console.error('OCR 처리 중 오류:', ocrError);
-            console.error('OCR 오류 상세:', ocrError.message);
-            console.error('OCR 오류 스택:', ocrError.stack);
-            // OCR 실패해도 PDF 업로드는 계속 진행
-          }
-
-
           // 1단계: DB에 메타데이터 먼저 저장 (상태: 업로드 중)
           const pdfData = {
             userId: userId,
-            fileName: originalFileName,  // 디코딩된 파일명 저장
-            originalFileName: originalFileName,  // 디코딩된 파일명 저장
+            fileName: originalFileName,
+            originalFileName: originalFileName,
             s3Key: fileName,
-            s3Url: '',  // 임시로 빈 값
+            s3Url: '',
             fileSize: file.size,
             uploadDate: new Date(),
-            status: 'uploading',  // 업로드 상태 추가
-            ocrText: ocrText  // OCR 결과 저장
+            status: 'uploading',
+            ocrText: '' // 초기값으로 빈 문자열
           };
 
-          let pdfId = null; // 변수 스코프를 위해 선언
-          pdfId = await this.pdfDocument.create(pdfData);
+          let pdfId = await this.pdfDocument.create(pdfData);
 
-          // 2단계: S3 업로드 파라미터
+          // 2단계: S3 업로드
           const uploadParams = {
             Bucket: BUCKET_NAME,
             Key: fileName,
             Body: file.buffer,
             ContentType: file.mimetype,
             Metadata: {
-              originalname: Buffer.from(originalFileName, 'utf8').toString('base64'), // Base64로 인코딩
+              originalname: Buffer.from(originalFileName, 'utf8').toString('base64'),
               userid: userId.toString()
             }
           };
 
-          // 3단계: S3에 파일 업로드
           const s3Result = await s3.upload(uploadParams).promise();
 
-          // 4단계: SVG 썸네일 생성
-          let thumbnailUrl = null;
-          try {
-            thumbnailUrl = await this.generateThumbnail(file.buffer, userId);
-          } catch (thumbnailError) {
-            console.error('SVG 썸네일 생성 실패:', thumbnailError);
-            // 썸네일 생성 실패해도 PDF 업로드는 계속 진행
-          }
+          // 3단계: 병렬 처리 - 모든 후처리 작업을 동시에 실행
+          console.log('병렬 처리 시작 - OCR, 썸네일, SVG, 텍스트 추출');
+          const startTime = Date.now();
 
-          // 5단계: 전체 페이지 SVG 생성 (PDF 뷰어용)
-          let allPagesSvg = null;
-          try {
-            allPagesSvg = await this.generateAllPagesSvg(file.buffer, userId);
-          } catch (svgError) {
-            console.error('전체 페이지 SVG 생성 실패:', svgError);
-            console.error('SVG 에러 상세:', svgError.message);
-            console.error('SVG 에러 스택:', svgError.stack);
-            // SVG 생성 실패해도 PDF 업로드는 계속 진행
+          const [ocrResult, thumbnailResult, svgResult, textResult] = await Promise.allSettled([
+            this.processOCR(file.buffer),
+            this.generateThumbnail(file.buffer, userId),
+            this.generateAllPagesSvg(file.buffer, userId),
+            this.extractTextSpans(file.buffer)
+          ]);
+
+          const endTime = Date.now();
+          console.log(`병렬 처리 완료 - 소요시간: ${endTime - startTime}ms`);
+
+          // 결과 추출
+          const ocrText = ocrResult.status === 'fulfilled' ? ocrResult.value : '';
+          const thumbnailUrl = thumbnailResult.status === 'fulfilled' ? thumbnailResult.value : null;
+          const allPagesSvg = svgResult.status === 'fulfilled' ? svgResult.value : null;
+          const textSpans = textResult.status === 'fulfilled' ? textResult.value : null;
+
+          // 에러 로깅
+          if (ocrResult.status === 'rejected') {
+            console.error('OCR 처리 실패:', ocrResult.reason);
           }
-          // 6단계: PyMuPDF로 텍스트 스팬 추출 (폰트/사이즈 포함)
-          let textSpans = null;
-          try {
-            const tempTextDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-text-mupdf-'));
-            const tempPdfForText = path.join(tempTextDir, 'temp.pdf');
-            fs.writeFileSync(tempPdfForText, file.buffer);
-            const extractCmd = `python /app/src/utils/extract_text.py "${tempPdfForText}"`;
-            const { stdout } = await execAsync(extractCmd);
-            const parsed = JSON.parse(stdout);
-            if (parsed && Array.isArray(parsed.pages)) {
-              textSpans = parsed.pages.flatMap(p => Array.isArray(p.spans) ? p.spans : []);
-            }
-            fs.rmSync(tempTextDir, { recursive: true, force: true });
-          } catch (textErr) {
-            console.error('PyMuPDF 텍스트 추출 실패:', textErr);
+          if (thumbnailResult.status === 'rejected') {
+            console.error('썸네일 생성 실패:', thumbnailResult.reason);
+          }
+          if (svgResult.status === 'rejected') {
+            console.error('SVG 생성 실패:', svgResult.reason);
+          }
+          if (textResult.status === 'rejected') {
+            console.error('텍스트 추출 실패:', textResult.reason);
           }
           
 
-          // 7단계: DB 업데이트 (S3 URL, 썸네일 데이터, SVG 페이지 데이터, 텍스트 스팬 추가, 상태 완료)
+          // 4단계: DB 업데이트 (모든 처리 결과 저장)
           const crypto = require('crypto');
           const pdfHash = crypto.createHash('md5').update(file.buffer).digest('hex');
           
           const updateData = {
             s3Url: s3Result.Location,
             status: 'completed',
-            pdfHash: pdfHash // PDF 해시 저장 (캐싱용)
+            pdfHash: pdfHash,
+            ocrText: ocrText // OCR 결과 저장
           };
 
           // 썸네일 URL이 있으면 추가
@@ -403,8 +416,8 @@ class PdfController {
 
           // 전체 페이지 SVG 데이터가 있으면 추가
           if (allPagesSvg && allPagesSvg.length > 0) {
-            updateData.allPagesSvg = allPagesSvg; // 전체 페이지 SVG URL 배열 저장
-            updateData.totalPages = allPagesSvg.length; // 총 페이지 수 저장
+            updateData.allPagesSvg = allPagesSvg;
+            updateData.totalPages = allPagesSvg.length;
           }
 
           // 텍스트 스팬 데이터 저장
@@ -414,11 +427,14 @@ class PdfController {
 
           await this.pdfDocument.updateById(pdfId, updateData);
 
+          // 5단계: 응답 데이터 구성
           const responseData = {
             success: true,
             pdfId: pdfId,
             fileName: originalFileName,
-            s3Url: s3Result.Location
+            s3Url: s3Result.Location,
+            processingTime: endTime - startTime, // 병렬 처리 소요시간 포함
+            status: 'completed'
           };
 
           // 썸네일 URL이 있으면 응답에 포함
@@ -437,6 +453,7 @@ class PdfController {
             responseData.textSpans = textSpans;
           }
 
+          console.log(`PDF 업로드 완료 - ID: ${pdfId}, 처리시간: ${endTime - startTime}ms`);
           res.status(201).json(responseData);
 
         } catch (error) {
@@ -597,9 +614,317 @@ class PdfController {
     }
   }
 
+  // PDF 텍스트 기반 채팅 기능 (스트림 방식)
+  async chatWithPdf(req, res) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: '로그인이 필요합니다.' });
+      }
 
+      const { pdfId } = req.params;
+      const { question, selectedText } = req.body;
 
+      if (!ObjectId.isValid(pdfId)) {
+        return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
+      }
 
+      if (!question || question.trim() === '') {
+        return res.status(400).json({ error: '질문을 입력해주세요.' });
+      }
+
+      // DB에서 PDF 정보 조회
+      const pdf = await this.pdfDocument.findById(pdfId);
+
+      if (!pdf) {
+        return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
+      }
+
+      // 권한 확인
+      const userId = req.user.googleId || req.user.kakaoId;
+      if (pdf.userId !== userId) {
+        return res.status(403).json({ error: '조회 권한이 없습니다.' });
+      }
+
+      // OCR 텍스트가 없으면 에러
+      if (!pdf.ocrText || pdf.ocrText.trim() === '') {
+        return res.status(400).json({ error: 'PDF 텍스트가 없습니다.' });
+      }
+
+      const openaiApiKey = process.env.OPENAI_API_KEY;
+      if (!openaiApiKey) {
+        return res.status(500).json({ error: 'OpenAI API 키가 설정되지 않았습니다.' });
+      }
+
+      // 사용자 메시지를 DB에 저장
+      const userMessageId = await this.chatMessage.create({
+        pdfId: new ObjectId(pdfId),
+        userId: userId,
+        type: 'user',
+        message: question,
+        selectedText: selectedText || null
+      });
+
+      // AI 응답 메시지 ID 생성 (스트리밍 중 업데이트용)
+      const aiMessageId = await this.chatMessage.create({
+        pdfId: new ObjectId(pdfId),
+        userId: userId,
+        type: 'ai',
+        message: '', // 빈 메시지로 시작
+        selectedText: selectedText || null
+      });
+
+      // 프롬프트 구성
+      let contextText = pdf.ocrText;
+      if (selectedText && selectedText.trim() !== '') {
+        contextText = `선택된 텍스트: "${selectedText}"\n\n전체 문서 내용:\n${pdf.ocrText}`;
+      }
+
+      const systemPrompt = `당신은 PDF 문서 분석 전문가입니다. 사용자가 제공한 PDF 문서의 내용을 바탕으로 정확하고 도움이 되는 답변을 제공해주세요.
+
+답변 가이드라인:
+- PDF 문서의 내용을 정확히 참조하여 답변
+- 선택된 텍스트가 있다면 해당 부분을 중점적으로 분석
+- 구체적이고 실용적인 정보 제공
+- 한국어로 자연스럽게 답변
+- 문서에 없는 내용은 추측하지 말고 명시적으로 표시
+- 필요시 문서의 관련 부분을 인용
+
+답변 형식 (마크다운 사용):
+- 제목: # 제목 (최대 3단계까지만 사용: # ## ###)
+- 중요한 내용: **굵은 글씨** 또는 *기울임*
+- 목록: * 항목 또는 - 항목 또는 1. 번호 목록
+- 코드: \`인라인 코드\` 또는 \`\`\`코드 블록\`\`\`
+- 문단 구분: 빈 줄로 구분
+- 절대 사용하지 말 것: #### (4단계 헤더), 복잡한 마크다운 문법
+
+예시 형식:
+# 주요 내용
+이것은 **중요한** 내용입니다.
+
+## 세부 설명
+* 기울임 텍스트
+* 목록 항목 1
+* 목록 항목 2
+
+### 추가 정보
+\`코드 예시\`를 포함할 수 있습니다.`;
+
+      // 스트림 응답 설정
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Headers', 'Cache-Control');
+
+      // OpenAI API 호출 (스트림)
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: systemPrompt
+            },
+            {
+              role: 'user',
+              content: `문서 내용:\n${contextText}\n\n질문: ${question}`
+            }
+          ],
+          stream: true,
+          max_tokens: 2000,
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('OpenAI API 호출 실패:', response.status, errorText);
+        
+        // 에러 메시지를 AI 메시지로 업데이트
+        await this.chatMessage.updateById(aiMessageId, {
+          message: 'AI 응답 생성에 실패했습니다.'
+        });
+        
+        return res.status(500).json({ error: 'AI 응답 생성에 실패했습니다.' });
+      }
+
+      // 스트림 데이터 처리
+      console.log('🚀 스트리밍 시작 - OpenAI API 응답 처리 시작');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = '';
+      let chunkCount = 0;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            console.log('✅ 스트리밍 완료 - 총 청크 수:', chunkCount, '전체 응답 길이:', fullResponse.length);
+            break;
+          }
+
+          chunkCount++;
+          const chunk = decoder.decode(value, { stream: true });
+          console.log(`📦 청크 #${chunkCount} 수신:`, chunk.length, 'bytes');
+          
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim();
+              
+              if (data === '[DONE]') {
+                console.log('🏁 OpenAI 스트림 완료 신호 수신');
+                // 최종 응답을 DB에 저장
+                await this.chatMessage.updateById(aiMessageId, {
+                  message: fullResponse
+                });
+                res.write('data: [DONE]\n\n');
+                res.end();
+                return;
+              }
+
+              if (data === '') {
+                continue;
+              }
+
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content;
+                
+                if (content) {
+                  fullResponse += content;
+                  console.log('텍스트 청크 전송:', content);
+                  // SSE 형식으로 전송
+                  res.write(`data: ${JSON.stringify({ content })}\n\n`);
+                  // 즉시 전송 보장
+                  if (res.flush) {
+                    res.flush();
+                  }
+                }
+              } catch (parseError) {
+                // JSON 파싱 에러는 무시하고 계속 진행
+                console.log(' JSON 파싱 에러:', parseError.message, 'Data:', data);
+                continue;
+              }
+            }
+          }
+        }
+        
+        // 최종 응답을 DB에 저장
+        console.log(' 최종 응답 DB 저장:', fullResponse.length, '자');
+        await this.chatMessage.updateById(aiMessageId, {
+          message: fullResponse
+        });
+        
+      } finally {
+        reader.releaseLock();
+        res.end();
+        console.log('🔚 스트리밍 연결 종료');
+      }
+
+    } catch (error) {
+      console.error('PDF 채팅 에러:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: '채팅 처리에 실패했습니다.' });
+      }
+    }
+  }
+
+  // PDF 채팅 히스토리 조회
+  async getChatHistory(req, res) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: '로그인이 필요합니다.' });
+      }
+
+      const { pdfId } = req.params;
+      const userId = req.user.googleId || req.user.kakaoId;
+
+      if (!ObjectId.isValid(pdfId)) {
+        return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
+      }
+
+      if (!userId) {
+        return res.status(400).json({ error: '사용자 ID를 찾을 수 없습니다.' });
+      }
+
+      // PDF 존재 및 권한 확인
+      const pdf = await this.pdfDocument.findById(pdfId);
+      if (!pdf) {
+        return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
+      }
+
+      if (pdf.userId !== userId) {
+        return res.status(403).json({ error: '조회 권한이 없습니다.' });
+      }
+
+      // 채팅 히스토리 조회
+      const chatHistory = await this.chatMessage.findByPdfId(pdfId, userId);
+
+      // 프론트엔드에서 필요한 형태로 변환
+      const formattedHistory = chatHistory.map(msg => ({
+        id: msg._id.toString(),
+        type: msg.type,
+        message: msg.message,
+        createdAt: msg.createdAt
+      }));
+
+      res.json(formattedHistory);
+
+    } catch (error) {
+      console.error('채팅 히스토리 조회 에러:', error);
+      res.status(500).json({ error: '채팅 히스토리를 가져올 수 없습니다.' });
+    }
+  }
+
+  // PDF 채팅 히스토리 삭제
+  async deleteChatHistory(req, res) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: '로그인이 필요합니다.' });
+      }
+
+      const { pdfId } = req.params;
+      const userId = req.user.googleId || req.user.kakaoId;
+
+      if (!ObjectId.isValid(pdfId)) {
+        return res.status(400).json({ error: '유효하지 않은 PDF ID입니다.' });
+      }
+
+      if (!userId) {
+        return res.status(400).json({ error: '사용자 ID를 찾을 수 없습니다.' });
+      }
+
+      // PDF 존재 및 권한 확인
+      const pdf = await this.pdfDocument.findById(pdfId);
+      if (!pdf) {
+        return res.status(404).json({ error: 'PDF를 찾을 수 없습니다.' });
+      }
+
+      if (pdf.userId !== userId) {
+        return res.status(403).json({ error: '삭제 권한이 없습니다.' });
+      }
+
+      // 채팅 히스토리 삭제
+      const deletedCount = await this.chatMessage.deleteByPdfId(pdfId, userId);
+
+      res.json({ 
+        success: true, 
+        message: '채팅 히스토리가 삭제되었습니다.',
+        deletedCount 
+      });
+
+    } catch (error) {
+      console.error('채팅 히스토리 삭제 에러:', error);
+      res.status(500).json({ error: '채팅 히스토리 삭제에 실패했습니다.' });
+    }
+  }
 }
-
 module.exports = { PdfController };

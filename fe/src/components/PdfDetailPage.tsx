@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Menu, Search, X, Map, ZoomIn, ZoomOut, Rotat
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { toast } from 'sonner';
+import { HtmlRenderer } from './ui/html-renderer';
 
 interface PdfDetailPageProps {
   pdfId: string;
@@ -10,6 +11,46 @@ interface PdfDetailPageProps {
   onBack: () => void;
   isDarkMode: boolean;
 }
+
+// 마크다운을 HTML로 변환하는 개선된 함수
+const markdownToHtml = (markdown: string): string => {
+  if (!markdown || markdown.trim() === '') return '';
+  
+  let html = markdown
+    // 코드 블록 먼저 처리 (다른 변환에 영향받지 않도록)
+    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+    // 인라인 코드 처리
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // 헤더 변환 (3단계까지만)
+    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+    // 굵은 글씨 (코드 내부가 아닌 경우만)
+    .replace(/(?<!<code[^>]*>)(?<!<pre[^>]*>)\*\*([^*]+)\*\*(?!<\/code>)(?!<\/pre>)/g, '<strong>$1</strong>')
+    // 기울임 (코드 내부가 아닌 경우만)
+    .replace(/(?<!<code[^>]*>)(?<!<pre[^>]*>)\*([^*]+)\*(?!<\/code>)(?!<\/pre>)/g, '<em>$1</em>')
+    // 목록 처리
+    .replace(/^(\d+)\. (.*$)/gim, '<li>$2</li>')
+    .replace(/^[\*\-] (.*$)/gim, '<li>$1</li>')
+    // 줄바꿈 처리
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+  
+  // 목록 감싸기 (연속된 li 태그들을 ul로 감싸기)
+  html = html.replace(/(<li>.*?<\/li>(?:\s*<li>.*?<\/li>)*)/gs, '<ul>$1</ul>');
+  
+  // 문단 감싸기 (이미 태그가 없는 텍스트만)
+  html = html.replace(/^(?!<[h|l|p|d|s|u|o])([^<].*?)(?=<[h|l|p|d|s|u|o]|$)/gm, '<p>$1</p>');
+  
+  // 빈 태그 정리
+  html = html
+    .replace(/<p><\/p>/g, '')
+    .replace(/<p><br><\/p>/g, '<br>')
+    .replace(/<p>\s*<\/p>/g, '')
+    .replace(/<ul>\s*<\/ul>/g, '');
+  
+  return html;
+};
 
 export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailPageProps) {
   
@@ -68,13 +109,39 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [pageInputValue, setPageInputValue] = useState('1');
   
   // AI 사이드바는 항상 채팅만 표시
-  const [aiMessage, setAiMessage] = useState('');
+  const [inputMessage, setInputMessage] = useState('');
   const [chatHistory, setChatHistory] = useState<Array<{id: string, type: 'user' | 'ai', message: string}>>([]);
+  
+  // 채팅 히스토리 로드 (DB에서)
+  const loadChatHistory = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/pdfs/${pdfId}/chat`, {
+        method: 'GET',
+        credentials: 'include'
+      });
+
+      if (response.ok) {
+        const history = await response.json();
+        setChatHistory(history);
+        return history;
+      } else {
+        console.error('채팅 히스토리 로드 실패:', response.status);
+        return [];
+      }
+    } catch (error) {
+      console.error('채팅 히스토리 로드 에러:', error);
+      return [];
+    }
+  }, [pdfId]);
   
   // 텍스트 선택 관련 상태
   const [selectedText, setSelectedText] = useState<string>('');
   const [selectionPosition, setSelectionPosition] = useState<{x: number, y: number} | null>(null);
   const [showTextActions, setShowTextActions] = useState<boolean>(false);
+  
+  // 선택된 텍스트 컨텍스트 (질문에 사용될 텍스트)
+  const [selectedTextContext, setSelectedTextContext] = useState<string>('');
+  const [hasSelectedTextContext, setHasSelectedTextContext] = useState<boolean>(false);
   
   // 채팅 전용 상태만 유지
   
@@ -258,30 +325,170 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     }
   }, []);
 
+  // PDF 채팅 API 호출 함수
+  const chatWithPdf = useCallback(async (question: string, selectedText?: string) => {
+    if (!pdfId) return;
+
+    // AI 사이드바 열기
+    if (!aiSidebarOpen) {
+      handleAiSidebarToggle();
+    }
+
+    // 임시로 사용자 메시지를 UI에 표시 (실제 저장은 백엔드에서)
+    const tempUserMessage = {
+      id: `temp_user_${Date.now()}`,
+      type: 'user' as const,
+      message: question
+    };
+    setChatHistory(prev => [...prev, tempUserMessage]);
+
+    // 임시 AI 메시지 ID 생성
+    const tempAiMessageId = `temp_ai_${Date.now()}`;
+    const tempAiMessage = {
+      id: tempAiMessageId,
+      type: 'ai' as const,
+      message: ''
+    };
+    setChatHistory(prev => [...prev, tempAiMessage]);
+
+    try {
+      const response = await fetch(`/api/pdfs/${pdfId}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          question,
+          selectedText
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || '채팅 요청에 실패했습니다.');
+      }
+
+      // 스트림 응답 처리
+      console.log('🌐 프론트엔드 스트리밍 시작');
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('스트림을 읽을 수 없습니다.');
+      }
+
+      const decoder = new TextDecoder();
+      let fullResponse = '';
+      let chunkCount = 0;
+      let displayText = '';
+
+      // 타이핑 효과를 위한 함수
+      const updateDisplayText = (text: string) => {
+        setChatHistory(prev => prev.map(msg => 
+          msg.id === tempAiMessageId 
+            ? { ...msg, message: text }
+            : msg
+        ));
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            console.log('✅ 프론트엔드 스트리밍 완료 - 총 청크:', chunkCount, '전체 길이:', fullResponse.length);
+            break;
+          }
+
+          chunkCount++;
+          const chunk = decoder.decode(value, { stream: true });
+          console.log(`📥 프론트엔드 청크 #${chunkCount} 수신:`, chunk.length, 'bytes');
+          
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim();
+              
+              if (data === '[DONE]') {
+                console.log('🏁 프론트엔드 완료 신호 수신');
+                // 마지막 텍스트까지 모두 표시
+                updateDisplayText(fullResponse);
+                break;
+              }
+
+              if (data === '') {
+                continue;
+              }
+
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.content;
+                
+                if (content) {
+                  fullResponse += content;
+                  console.log('💬 프론트엔드 텍스트 업데이트:', content, '| 누적:', fullResponse.length, '자');
+                  
+                  // 즉시 UI 업데이트 (배칭 방지)
+                  updateDisplayText(fullResponse);
+                  
+                  // 약간의 지연을 두어 타이핑 효과 강화
+                  await new Promise(resolve => setTimeout(resolve, 5));
+                }
+              } catch (parseError) {
+                // JSON 파싱 에러는 무시하고 계속 진행
+                console.log('❌ 프론트엔드 JSON 파싱 에러:', parseError.message, 'Data:', data);
+                continue;
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+        console.log('🔚 프론트엔드 스트리밍 연결 종료');
+      }
+
+      // 채팅 완료 후 DB에서 최신 히스토리 다시 로드
+      await loadChatHistory();
+
+    } catch (error) {
+      console.error('PDF 채팅 에러:', error);
+      // 에러 메시지를 AI 메시지로 업데이트
+      setChatHistory(prev => prev.map(msg => 
+        msg.id === tempAiMessageId 
+          ? { ...msg, message: `에러: ${error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'}` }
+          : msg
+      ));
+    }
+  }, [pdfId, aiSidebarOpen, handleAiSidebarToggle, loadChatHistory]);
+
   // 텍스트 액션 버튼 함수들
   const handleAskQuestion = useCallback(() => {
     if (selectedText) {
-      const questionMessage = `선택한 텍스트에 대해 질문: "${selectedText}"`;
-      setAiMessage(questionMessage);
-      setShowTextActions(false);
-      // AI 사이드바가 닫혀있다면 열기
+      // 선택된 텍스트를 컨텍스트로 저장
+      setSelectedTextContext(selectedText);
+      setHasSelectedTextContext(true);
+      
+      // AI 사이드바 열기
       if (!aiSidebarOpen) {
         handleAiSidebarToggle();
       }
+      
+      setShowTextActions(false);
+      setSelectedText('');
+      setSelectionPosition(null);
     }
-  }, [selectedText, aiSidebarOpen]);
+  }, [selectedText, aiSidebarOpen, handleAiSidebarToggle]);
 
   const handleTranslateText = useCallback(() => {
     if (selectedText) {
-      const translateMessage = `다음 텍스트를 번역해주세요: "${selectedText}"`;
-      setAiMessage(translateMessage);
+      // 선택된 텍스트를 컨텍스트로 저장하고 번역 질문
+      setSelectedTextContext(selectedText);
+      setHasSelectedTextContext(true);
+      
+      const question = `다음 텍스트를 영어로 번역해주세요`;
+      chatWithPdf(question, selectedText);
       setShowTextActions(false);
-      // AI 사이드바가 닫혀있다면 열기
-      if (!aiSidebarOpen) {
-        handleAiSidebarToggle();
-      }
     }
-  }, [selectedText, aiSidebarOpen]);
+  }, [selectedText, chatWithPdf]);
 
   const handleHighlightText = useCallback(() => {
     if (selectedText) {
@@ -289,6 +496,12 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
       setShowTextActions(false);
     }
   }, [selectedText]);
+
+  // 선택된 텍스트 컨텍스트 초기화
+  const clearSelectedTextContext = useCallback(() => {
+    setSelectedTextContext('');
+    setHasSelectedTextContext(false);
+  }, []);
 
 
 
@@ -399,27 +612,16 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
 
   // AI 메시지 전송 핸들러
   const handleSendAiMessage = () => {
-    if (!aiMessage.trim()) return;
+    if (!inputMessage.trim()) return;
 
-    const userMessage = {
-      id: Date.now().toString(),
-      type: 'user' as const,
-      message: aiMessage
-    };
+    const question = inputMessage;
+    setInputMessage(''); // 입력창 비우기
 
-    setChatHistory(prev => [...prev, userMessage]);
-
-    // AI 응답 시뮬레이션
-    setTimeout(() => {
-      const aiResponse = {
-        id: (Date.now() + 1).toString(),
-        type: 'ai' as const,
-        message: `"${pdfName}"에 대한 질문에 답변드리겠습니다. "${aiMessage}"에 대해서는 이 문서의 내용을 바탕으로 설명해드리면...`
-      };
-      setChatHistory(prev => [...prev, aiResponse]);
-    }, 1000);
-
-    setAiMessage('');
+    // 선택된 텍스트 컨텍스트가 있으면 함께 전달
+    const selectedTextToSend = hasSelectedTextContext ? selectedTextContext : undefined;
+    
+    // chatWithPdf 함수 호출
+    chatWithPdf(question, selectedTextToSend);
   };
 
   // 채팅 히스토리가 변경될 때 자동으로 스크롤을 아래로 이동
@@ -429,17 +631,23 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     }
   }, [chatHistory]);
 
-  // 초기 챗봇 메시지 설정
+  // 초기 챗봇 메시지 설정 및 저장된 히스토리 로드
   useEffect(() => {
-    if (chatHistory.length === 0) {
-      const initialMessage = {
-        id: 'initial',
-        type: 'ai' as const,
-        message: `안녕하세요! "${pdfName}"으로 학습한 AI 챗봇입니다. 이 문서에 대해 궁금한 점이나 이해하고 싶은 부분이 있으시면 마음껏 질문해주세요!`
-      };
-      setChatHistory([initialMessage]);
-    }
-  }, [chatHistory.length, pdfName]);
+    const initializeChat = async () => {
+      const savedHistory = await loadChatHistory();
+      
+      if (savedHistory.length === 0) {
+        const initialMessage = {
+          id: 'initial',
+          type: 'ai' as const,
+          message: `안녕하세요! "${pdfName}"으로 학습한 AI 챗봇입니다. 이 문서에 대해 궁금한 점이나 이해하고 싶은 부분이 있으시면 마음껏 질문해주세요!`
+        };
+        setChatHistory([initialMessage]);
+      }
+    };
+
+    initializeChat();
+  }, [pdfName, loadChatHistory]);
 
   // 텍스트 선택 이벤트 리스너
   useEffect(() => {
@@ -1019,7 +1227,13 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                         : isDarkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-gray-900'
                     }`}
                   >
-                    <p className="text-sm leading-relaxed">{chat.message}</p>
+                    {chat.type === 'ai' ? (
+                      <div className="text-sm leading-relaxed">
+                        <HtmlRenderer html={markdownToHtml(chat.message)} isDarkMode={isDarkMode} />
+                      </div>
+                    ) : (
+                      <p className="text-sm leading-relaxed">{chat.message}</p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1032,15 +1246,20 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
               <div className="flex gap-2">
                 <Input
                   type="text"
-                  placeholder="AI 튜터에게 질문하세요..."
-                  value={aiMessage}
-                  onChange={(e) => setAiMessage(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSendAiMessage()}
+                  placeholder={hasSelectedTextContext ? "선택된 텍스트에 대해 질문하세요..." : "AI 튜터에게 질문하세요..."}
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendAiMessage();
+                    }
+                  }}
                   className={`flex-1 ${isDarkMode ? 'bg-[#3e3b3b] border-gray-600 text-[#efefef] placeholder:text-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder:text-gray-500'}`}
                 />
                 <Button
                   onClick={handleSendAiMessage}
-                  disabled={!aiMessage.trim()}
+                  disabled={!inputMessage.trim()}
                   className="bg-blue-500 hover:bg-blue-600 text-white"
                 >
                   전송
