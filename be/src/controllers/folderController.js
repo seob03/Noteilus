@@ -133,6 +133,52 @@ class FolderController {
     }
   }
 
+  // 폴더 재귀 삭제 (내부 함수)
+  async deleteFolderRecursive(folderId, userId) {
+    const folder = await this.folder.findById(folderId);
+    if (!folder || folder.userId !== userId) {
+      return;
+    }
+
+    // 폴더 내 PDF 파일들 삭제
+    if (folder.items && folder.items.length > 0) {
+      const pdfItems = folder.items.filter(item => item.type === 'pdf');
+      
+      for (const item of pdfItems) {
+        try {
+          const pdf = await this.pdfDocument.findById(item.id);
+          if (pdf && pdf.userId === userId) {
+            // S3에서 파일 삭제
+            const AWS = require('aws-sdk');
+            const s3 = new AWS.S3();
+            const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME;
+            
+            const deleteParams = {
+              Bucket: BUCKET_NAME,
+              Key: pdf.s3Key
+            };
+            
+            await s3.deleteObject(deleteParams).promise();
+            
+            // DB에서 PDF 메타데이터 삭제
+            await this.pdfDocument.deleteById(item.id);
+          }
+        } catch (error) {
+          console.error(`PDF ${item.id} 삭제 에러:`, error);
+        }
+      }
+    }
+
+    // 하위 폴더들 재귀 삭제
+    const subFolders = await this.folder.findSubFolders(folderId);
+    for (const subFolder of subFolders) {
+      await this.deleteFolderRecursive(subFolder._id.toString(), userId);
+    }
+
+    // 폴더 삭제
+    await this.folder.deleteById(folderId);
+  }
+
   // 폴더 삭제
   async deleteFolder(req, res) {
     try {
@@ -156,17 +202,49 @@ class FolderController {
         return res.status(403).json({ error: '삭제 권한이 없습니다.' });
       }
 
-      // 하위 폴더가 있는지 확인
-      const subFolders = await this.folder.findSubFolders(folderId);
-      if (subFolders.length > 0) {
-        return res.status(400).json({ error: '하위 폴더가 있는 폴더는 삭제할 수 없습니다.' });
-      }
-
-      // 폴더 내 아이템이 있는지 확인
+      // 폴더 내 PDF 파일들 삭제
       if (folder.items && folder.items.length > 0) {
-        return res.status(400).json({ error: '폴더 내 파일이 있는 폴더는 삭제할 수 없습니다.' });
+        const pdfItems = folder.items.filter(item => item.type === 'pdf');
+        
+        for (const item of pdfItems) {
+          try {
+            // PDF 파일 정보 조회
+            const pdf = await this.pdfDocument.findById(item.id);
+            if (pdf && pdf.userId === userId) {
+              // S3에서 파일 삭제
+              const AWS = require('aws-sdk');
+              const s3 = new AWS.S3();
+              const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME;
+              
+              const deleteParams = {
+                Bucket: BUCKET_NAME,
+                Key: pdf.s3Key
+              };
+              
+              await s3.deleteObject(deleteParams).promise();
+              
+              // DB에서 PDF 메타데이터 삭제
+              await this.pdfDocument.deleteById(item.id);
+            }
+          } catch (error) {
+            console.error(`PDF ${item.id} 삭제 에러:`, error);
+            // 개별 PDF 삭제 실패해도 폴더 삭제는 계속 진행
+          }
+        }
       }
 
+      // 하위 폴더들도 재귀적으로 삭제
+      const subFolders = await this.folder.findSubFolders(folderId);
+      for (const subFolder of subFolders) {
+        try {
+          // 재귀적으로 하위 폴더 삭제
+          await this.deleteFolderRecursive(subFolder._id.toString(), userId);
+        } catch (error) {
+          console.error(`하위 폴더 ${subFolder._id} 삭제 에러:`, error);
+        }
+      }
+
+      // 폴더 삭제
       await this.folder.deleteById(folderId);
 
       res.json({
@@ -177,6 +255,79 @@ class FolderController {
     } catch (error) {
       console.error('폴더 삭제 에러:', error);
       res.status(500).json({ error: '폴더 삭제에 실패했습니다.' });
+    }
+  }
+
+  // 폴더 일괄 삭제
+  async deleteMultipleFolders(req, res) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: '로그인이 필요합니다.' });
+      }
+
+      const { folderIds } = req.body;
+
+      if (!Array.isArray(folderIds) || folderIds.length === 0) {
+        return res.status(400).json({ error: '삭제할 폴더 ID 목록이 필요합니다.' });
+      }
+
+      // 모든 폴더 ID 유효성 검사
+      const invalidIds = folderIds.filter(id => !ObjectId.isValid(id));
+      if (invalidIds.length > 0) {
+        return res.status(400).json({ error: '유효하지 않은 폴더 ID가 포함되어 있습니다.' });
+      }
+
+      const userId = req.user.googleId || req.user.kakaoId;
+      const results = {
+        success: [],
+        failed: [],
+        notFound: [],
+        unauthorized: []
+      };
+
+      // 각 폴더에 대해 삭제 처리
+      for (const folderId of folderIds) {
+        try {
+          // DB에서 폴더 정보 조회
+          const folder = await this.folder.findById(folderId);
+
+          if (!folder) {
+            results.notFound.push(folderId);
+            continue;
+          }
+
+          // 권한 확인
+          if (folder.userId !== userId) {
+            results.unauthorized.push(folderId);
+            continue;
+          }
+
+          // 폴더와 내부 파일들 모두 삭제
+          await this.deleteFolderRecursive(folderId, userId);
+
+          results.success.push(folderId);
+
+        } catch (error) {
+          console.error(`폴더 ${folderId} 삭제 에러:`, error);
+          results.failed.push({ id: folderId, error: error.message });
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `${results.success.length}개의 폴더가 삭제되었습니다.`,
+        results: {
+          successCount: results.success.length,
+          failedCount: results.failed.length,
+          notFoundCount: results.notFound.length,
+          unauthorizedCount: results.unauthorized.length,
+          details: results
+        }
+      });
+
+    } catch (error) {
+      console.error('폴더 일괄 삭제 에러:', error);
+      res.status(500).json({ error: '폴더 일괄 삭제에 실패했습니다.' });
     }
   }
 

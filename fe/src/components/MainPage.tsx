@@ -596,41 +596,92 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
       return doc && doc.type === 'pdf';
     });
 
-    if (pdfIds.length === 0) {
-      toast.error('삭제할 PDF가 없습니다.');
+    const folderIds = selectedDocuments.filter(id => {
+      const doc = documents.find(d => d.id === id);
+      return doc && doc.type === 'folder';
+    });
+
+    if (pdfIds.length === 0 && folderIds.length === 0) {
+      toast.error('삭제할 문서가 없습니다.');
       return;
     }
 
-    // 삭제 확인
-    const confirmMessage = `선택한 ${pdfIds.length}개의 PDF를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.`;
+    // 삭제 확인 메시지 생성
+    let confirmMessage = '선택한 ';
+    if (pdfIds.length > 0 && folderIds.length > 0) {
+      confirmMessage += `${pdfIds.length}개의 PDF와 ${folderIds.length}개의 폴더를 삭제하시겠습니까?`;
+    } else if (pdfIds.length > 0) {
+      confirmMessage += `${pdfIds.length}개의 PDF를 삭제하시겠습니까?`;
+    } else {
+      confirmMessage += `${folderIds.length}개의 폴더를 삭제하시겠습니까?`;
+    }
+    confirmMessage += '\n\n⚠️ 폴더를 삭제하면 폴더 안의 모든 파일과 하위 폴더도 함께 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.';
+
     if (!confirm(confirmMessage)) {
       return;
     }
 
     try {
-      const response = await fetch('/api/pdfs', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ pdfIds })
+      const promises: Promise<Response>[] = [];
+
+      // PDF 삭제
+      if (pdfIds.length > 0) {
+        promises.push(
+          fetch('/api/pdfs', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ pdfIds })
+          })
+        );
+      }
+
+      // 폴더 삭제
+      if (folderIds.length > 0) {
+        promises.push(
+          fetch('/api/folders', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ folderIds })
+          })
+        );
+      }
+
+      const responses = await Promise.all(promises);
+      const results = await Promise.all(responses.map(res => res.json()));
+
+      // 결과 처리
+      let successCount = 0;
+      let errorMessages: string[] = [];
+
+      results.forEach((result: any, index: number) => {
+        if (responses[index].ok) {
+          successCount += result.results?.successCount || 0;
+        } else {
+          errorMessages.push(result.error || '삭제에 실패했습니다.');
+        }
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        toast.success(result.message);
-        
-        // 선택 모드 해제 및 선택 목록 초기화
-        setSelectionMode(false);
-        setSelectedDocuments([]);
-        
-        // 문서 목록 다시 로드
-        await loadDocuments();
-      } else {
-        const errorData = await response.json();
-        toast.error(errorData.error || '삭제에 실패했습니다.');
+      if (successCount > 0) {
+        toast.success(`${successCount}개의 항목이 삭제되었습니다.`);
       }
+
+      if (errorMessages.length > 0) {
+        errorMessages.forEach(error => toast.error(error));
+      }
+
+      // 선택 모드 해제 및 선택 목록 초기화
+      setSelectionMode(false);
+      setSelectedDocuments([]);
+      
+      // 문서 목록 다시 로드
+      await loadDocuments();
+
     } catch (error) {
       console.error('일괄 삭제 에러:', error);
       toast.error('삭제 중 오류가 발생했습니다.');

@@ -30,6 +30,12 @@ function createFolderRoutes(db) {
   router.delete('/:folderId', (req, res) => folderController.deleteFolder(req, res));
 
   /**
+   * @route DELETE /api/folders
+   * @desc 여러 폴더 일괄 삭제
+   */
+  router.delete('/', (req, res) => folderController.deleteMultipleFolders(req, res));
+
+  /**
    * @route PUT /api/folders/:folderId/rename
    * @desc 폴더 이름 변경
    */
