@@ -200,26 +200,42 @@ export function PdfDetailPage({
   const calculatePdfScale = useCallback(() => {
     const viewer = pdfViewerRef.current;
     if (!viewer || !pdfDimensions) return;
-
+    
     const viewerRect = viewer.getBoundingClientRect();
-    const availableWidth = viewerRect.width - 40; // 좌우 마진
-    const availableHeight = viewerRect.height - 120; // 상하 마진 (헤더 + 푸터)
-
+    const availableWidth = viewerRect.width - 80; // 좌우 마진
+    const availableHeight = viewerRect.height - 120; // 페이지 네비게이션과 여유공간 확보
+    
     // 비율에 따른 스케일 계산
     const widthScale = availableWidth / pdfDimensions.width;
     const heightScale = availableHeight / pdfDimensions.height;
-
-    // 위아래가 꽉 차도록 하되, 카드가 잘리지 않도록 비율 선택
+    
+    // 더 보수적인 스케일 선택 - 스크롤 없이 완전히 보이도록
     const newScale = Math.min(widthScale, heightScale);
-
-    setPdfScale(newScale);
-  }, [
-    pdfDimensions,
-    mapSidebarOpen,
-    aiSidebarOpen,
-    aiSidebarWidth,
-    mapSidebarWidth,
-  ]);
+    
+    // 세로로 긴 PDF의 경우 추가 제한
+    const aspectRatio = pdfDimensions.width / pdfDimensions.height;
+    let finalScale = newScale;
+    
+    if (aspectRatio < 0.8) { // 세로로 긴 경우
+      finalScale = Math.min(newScale, 0.5); // 최대 50%로 더 제한하여 확실히 맞추기
+    }
+    
+    console.log('크기 계산:', {
+      availableWidth,
+      availableHeight,
+      pdfWidth: pdfDimensions.width,
+      pdfHeight: pdfDimensions.height,
+      aspectRatio,
+      widthScale,
+      heightScale,
+      newScale,
+      finalScale,
+      mapSidebarOpen,
+      aiSidebarOpen
+    });
+    
+    setPdfScale(finalScale);
+  }, [pdfDimensions, mapSidebarOpen, aiSidebarOpen]);
 
   // 컴포넌트 마운트 및 리사이즈 이벤트
   useEffect(() => {
@@ -467,7 +483,6 @@ export function PdfDetailPage({
         const decoder = new TextDecoder();
         let fullResponse = '';
         let chunkCount = 0;
-        let displayText = '';
 
         // 타이핑 효과를 위한 함수
         const updateDisplayText = (text: string) => {
@@ -726,6 +741,27 @@ export function PdfDetailPage({
     }
   }, [currentPage, allPagesSvg, preloadRange, loadedPages]);
 
+  // 컨텍스트 액션 핸들러 (설명해줘, 요약해줘)
+  const handleContextAction = useCallback(
+    (action: 'explain' | 'summarize') => {
+      if (!questionContext) return;
+
+      let actionMessage = '';
+      if (action === 'explain') {
+        actionMessage = `[${questionContext.pageNumber}페이지에서 선택한 텍스트 설명 요청] "${questionContext.text}"\n\n이 텍스트에 대해 자세히 설명해주세요.`;
+      } else if (action === 'summarize') {
+        actionMessage = `[${questionContext.pageNumber}페이지에서 선택한 텍스트 요약 요청] "${questionContext.text}"\n\n이 텍스트를 요약해주세요.`;
+      }
+
+      // chatWithPdf 함수 호출
+      chatWithPdf(actionMessage, questionContext.text);
+
+      // 액션 실행 후 컨텍스트 제거
+      setQuestionContext(null);
+    },
+    [questionContext]
+  );
+
   // AI 메시지 전송 핸들러
   const handleSendAiMessage = () => {
     if (!inputMessage.trim()) return;
@@ -918,7 +954,7 @@ export function PdfDetailPage({
     <div
       className={`${
         isDarkMode ? 'bg-[#1a1a1e]' : 'bg-gray-50'
-      } h-screen flex relative overflow-x-auto`}
+      } h-screen flex relative`}
     >
       {/* 텍스트 선택 시 플로팅 액션 버튼들 */}
       {showTextActions && selectionPosition && (
@@ -1039,9 +1075,10 @@ export function PdfDetailPage({
           </div>
         </div>
 
-        {/* PDF 뷰어 및 캔버스 - 나머지 공간 전체 사용 */}
+        {/* PDF 뷰어 및 캔버스 - 브라우저 높이에서 헤더를 뺀 나머지 공간 사용 */}
         <div
-          className='flex-1 flex flex-col items-center justify-center overflow-hidden'
+          className='flex flex-col items-center'
+          style={{ height: 'calc(100vh - 64px)' }}
           ref={pdfViewerRef}
         >
           {/* 로딩 상태 */}
@@ -1075,36 +1112,21 @@ export function PdfDetailPage({
             </div>
           )}
 
-          {/* SVG PDF 뷰어 또는 react-pdf Document */}
-          <div
-            className='relative inline-block'
-            ref={containerRef}
-            style={{
-              transform: `scale(${pdfZoom})`,
-              transformOrigin: 'center center',
-              transition: 'transform 0.2s ease-in-out',
-            }}
-          >
+          {/* PDF 컨테이너 - 페이지 네비게이션 공간 확보 */}
+          <div className='flex-1 flex flex-col items-center min-h-0' style={{ maxHeight: 'calc(100vh - 64px - 80px)' }}>
+            {/* SVG PDF 뷰어 또는 react-pdf Document */}
+            <div
+              className='relative inline-block flex-shrink-0'
+              ref={containerRef}
+              style={{
+                transform: `scale(${pdfZoom})`,
+                transformOrigin: 'center center',
+                transition: 'transform 0.2s ease-in-out',
+              }}
+            >
             {allPagesSvg ? (
               // SVG 뷰어
-              <div
-                className='svg-pdf-viewer'
-                style={{
-                  background: isDarkMode
-                    ? 'linear-gradient(180deg, #111214 0%, #0d0e10 100%)'
-                    : 'linear-gradient(180deg, #f6f7fb 0%, #eef1f7 100%)',
-                  padding: '24px 16px',
-                  borderRadius: 12,
-                }}
-              >
-                {(() => {
-                  console.log('SVG 뷰어 렌더링:', {
-                    allPagesSvg,
-                    svgLoading,
-                    currentPage,
-                  });
-                  return null;
-                })()}
+              <div>
                 {svgLoading ? (
                   <div className='text-center'>
                     <div className='animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4'></div>
@@ -1117,7 +1139,7 @@ export function PdfDetailPage({
                     </p>
                   </div>
                 ) : (
-                  <div className='svg-page-container w-full flex items-center justify-center'>
+                  <div className='w-full flex items-center justify-center' style={{ maxHeight: '80vh' }}>
                     {allPagesSvg.map((pageData) => {
                       const shouldRender =
                         pageData.pageNumber === currentPage ||
@@ -1136,14 +1158,17 @@ export function PdfDetailPage({
                             isDarkMode
                               ? 'border-gray-700/60'
                               : 'border-gray-200/80'
-                          } bg-white rounded-xl shadow-xl border mx-auto p-5 max-w-[960px]`}
+                          } bg-white rounded-xl shadow-xl border mx-auto p-5`}
                           style={{
-                            maxWidth: '100%',
-                            height: 'auto',
+                            transform: `scale(${pdfScale})`,
+                            transformOrigin: 'center center',
+                            transition: 'transform 0.2s ease-in-out',
                             display:
                               pageData.pageNumber === currentPage
-                                ? 'block'
+                                ? 'flex'
                                 : 'none',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                           }}
                         >
                           {shouldRender ? (
@@ -1161,17 +1186,21 @@ export function PdfDetailPage({
                                     ? 'eager'
                                     : 'lazy'
                                 }
-                                onLoad={() => {
+                                onLoad={(e) => {
                                   if (pageData.pageNumber === currentPage) {
                                     // 현재 페이지의 SVG가 로드되면 크기 정보 업데이트
-                                    const img = document.querySelector(
-                                      `img[alt="페이지 ${pageData.pageNumber}"]`
-                                    ) as HTMLImageElement;
-                                    if (img) {
+                                    const img = e.target as HTMLImageElement;
+                                    if (img && img.naturalWidth && img.naturalHeight) {
                                       setPdfDimensions({
                                         width: img.naturalWidth,
                                         height: img.naturalHeight,
                                       });
+                                      
+                                      // 크기 설정 후 스케일 재계산
+                                      setTimeout(() => {
+                                        calculatePdfScale();
+                                      }, 100);
+                                      
                                       const rect = img.getBoundingClientRect();
                                       setRenderedSize({
                                         width: rect.width,
@@ -1302,10 +1331,10 @@ export function PdfDetailPage({
                 </p>
               </div>
             )}
-          </div>
+            </div>
 
-          {/* 페이지 네비게이션 - PDF 아래에 위치 (줌 영향 받지 않음) */}
-          <div className='flex items-center justify-center gap-4 mt-4'>
+            {/* 페이지 네비게이션 - PDF 바로 아래 고정 위치 (줌 영향 받지 않음) */}
+            <div className='flex items-center justify-center gap-4 mt-4 mb-4 flex-shrink-0' style={{ height: '60px' }}>
             {currentPage > 1 && (
               <Button
                 variant='outline'
@@ -1343,6 +1372,7 @@ export function PdfDetailPage({
                 <ChevronRight size={16} />
               </Button>
             )}
+            </div>
           </div>
         </div>
       </div>
@@ -1517,18 +1547,18 @@ export function PdfDetailPage({
           isDarkMode ? 'bg-[#121214]' : 'bg-white'
         } transition-all duration-300 flex-shrink-0 relative border-l ${
           isDarkMode ? 'border-gray-700' : 'border-gray-200'
-        } h-full ${aiSidebarOpen ? '' : 'w-0 overflow-hidden'}`}
+        } h-screen ${aiSidebarOpen ? '' : 'w-0 overflow-hidden'}`}
         style={aiSidebarOpen ? { width: `${aiSidebarWidth}px` } : {}}
       >
         <div className='flex flex-col h-full'>
-          {/* AI 사이드바 헤더 - 닫기 버튼만 */}
+          {/* AI 사이드바 헤더 - PDF 헤더 높이와 동일하게 */}
           <div
             className={`border-b ${
               isDarkMode ? 'border-gray-700' : 'border-gray-200'
-            }`}
+            } flex-shrink-0 h-16`}
           >
-            {/* 상단 닫기 버튼 */}
-            <div className='flex justify-end p-2'>
+            {/* 상단 닫기 버튼 - PDF 헤더와 동일한 높이 및 패딩 */}
+            <div className='flex justify-end items-center h-full p-4'>
               <Button
                 variant='ghost'
                 size='sm'
@@ -1537,7 +1567,7 @@ export function PdfDetailPage({
                   isDarkMode
                     ? 'text-[#efefef] hover:bg-gray-700'
                     : 'text-gray-600 hover:bg-gray-100'
-                } p-1`}
+                }`}
               >
                 <X size={16} />
               </Button>
@@ -1545,51 +1575,9 @@ export function PdfDetailPage({
           </div>
 
           {/* 채팅 기능만 유지 */}
-          <div className='flex flex-col h-full'>
-            {/* 질문 컨텍스트 표시 */}
-            {questionContext && (
-              <div
-                className={`p-3 border-b ${
-                  isDarkMode
-                    ? 'border-gray-700 bg-gray-800'
-                    : 'border-gray-200 bg-blue-50'
-                } flex-shrink-0`}
-              >
-                <div className='flex items-center justify-between'>
-                  <div className='flex-1 min-w-0'>
-                    <div
-                      className={`text-xs ${
-                        isDarkMode ? 'text-gray-400' : 'text-blue-600'
-                      } mb-1`}
-                    >
-                      {questionContext.pageNumber}페이지에서 질문
-                    </div>
-                    <div
-                      className={`text-sm ${
-                        isDarkMode ? 'text-gray-300' : 'text-gray-700'
-                      } truncate`}
-                    >
-                      "{questionContext.text}"
-                    </div>
-                  </div>
-                  <Button
-                    variant='ghost'
-                    size='sm'
-                    onClick={() => setQuestionContext(null)}
-                    className={`ml-2 h-6 w-6 p-0 ${
-                      isDarkMode
-                        ? 'text-gray-400 hover:text-gray-300 hover:bg-gray-700'
-                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    <X size={14} />
-                  </Button>
-                </div>
-              </div>
-            )}
-
+          <div className='flex flex-col flex-1 min-h-0'>
             {/* 채팅 히스토리 - 고정 높이와 스크롤 */}
-            <div className='flex-1 overflow-y-auto p-4 space-y-4 min-h-0'>
+            <div className='flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 min-h-0'>
               {chatHistory.map((chat) => (
                 <div
                   key={chat.id}
@@ -1622,6 +1610,78 @@ export function PdfDetailPage({
               {/* 자동 스크롤을 위한 끝점 */}
               <div ref={chatMessagesEndRef} />
             </div>
+
+            {/* 컨텍스트 액션 버튼들 - 컨텍스트 UI 바로 위 */}
+            {questionContext && (
+              <div className='flex-shrink-0 p-3'>
+                <div className='flex gap-2 mb-3'>
+                  <Button
+                    size='sm'
+                    onClick={() => handleContextAction('explain')}
+                    className={`h-8 px-4 text-sm border ${
+                      isDarkMode
+                        ? 'border-blue-500 text-blue-400 hover:bg-blue-500 hover:text-white bg-transparent'
+                        : 'border-blue-500 text-blue-600 hover:bg-blue-500 hover:text-white bg-transparent'
+                    } transition-all duration-200`}
+                  >
+                    설명해줘
+                  </Button>
+                  <Button
+                    size='sm'
+                    onClick={() => handleContextAction('summarize')}
+                    className={`h-8 px-4 text-sm border ${
+                      isDarkMode
+                        ? 'border-green-500 text-green-400 hover:bg-green-500 hover:text-white bg-transparent'
+                        : 'border-green-500 text-green-600 hover:bg-green-500 hover:text-white bg-transparent'
+                    } transition-all duration-200`}
+                  >
+                    요약해줘
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* 질문 컨텍스트 표시 - 채팅창 바로 위 */}
+            {questionContext && (
+              <div
+                className={`p-3 border-t ${
+                  isDarkMode
+                    ? 'border-gray-700 bg-gray-800'
+                    : 'border-gray-200 bg-blue-50'
+                } flex-shrink-0`}
+              >
+                <div className='flex items-center justify-between'>
+                  <div className='flex-1 min-w-0'>
+                    <div
+                      className={`text-xs ${
+                        isDarkMode ? 'text-gray-400' : 'text-blue-600'
+                      } mb-1`}
+                    >
+                      {questionContext.pageNumber}페이지에서 선택된 텍스트
+                    </div>
+                    <div
+                      className={`text-sm ${
+                        isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                      } truncate`}
+                    >
+                      "{questionContext.text}"
+                    </div>
+                  </div>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => setQuestionContext(null)}
+                    className={`ml-2 h-6 w-6 p-0 ${
+                      isDarkMode
+                        ? 'text-gray-400 hover:text-gray-300 hover:bg-gray-700'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    <X size={14} />
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {/* 메시지 입력 - 고정 */}
             <div
