@@ -1,14 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Menu, Search, X, Share2, FileEdit, BookOpen, Settings as SettingsIcon, Download, Map, Languages, Copy, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Menu, Search, X, Map, ZoomIn, ZoomOut, RotateCcw, MessageCircle, Languages, Highlighter } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
-import { Label } from './ui/label';
-import { Separator } from './ui/separator';
 import { toast } from 'sonner';
-import { HtmlRenderer } from './ui/html-renderer';
-import { LatexRenderer } from './ui/latex-renderer';
 
 interface PdfDetailPageProps {
   pdfId: string;
@@ -17,14 +11,6 @@ interface PdfDetailPageProps {
   isDarkMode: boolean;
 }
 
-const LANGUAGE_OPTIONS = [
-  { value: 'ko-to-en', label: '한국어 → 영어' },
-  { value: 'en-to-ko', label: 'English → 한국어' },
-  { value: 'ko-to-ja', label: '한국어 → 日本語' },
-  { value: 'ja-to-ko', label: '日本語 → 한국어' },
-  { value: 'ko-to-zh', label: '한국어 → 中文' },
-  { value: 'zh-to-ko', label: '中文 → 한국어' },
-];
 export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailPageProps) {
   
   // SVG PDF 뷰어 관련 상태
@@ -50,76 +36,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [showTextLayer, setShowTextLayer] = useState<boolean>(true);
   
   
-  // LaTeX 수식 파싱 헬퍼 함수
-  const parseLatexContent = (content: string) => {
-    // 더 정확한 LaTeX 수식 패턴 매칭
-    // 블록 수식: $$...$$ (줄바꿈 포함 가능)
-    // 인라인 수식: $...$ (줄바꿈 제외)
-    // 독립적인 LaTeX 명령어: \\[4pt], \\, \quad 등
-    // \text{} 명령어가 포함된 수식도 안전하게 처리
-    const parts = content.split(/(\$\$[\s\S]*?\$\$|\$[^$\n]*\$|\\\\\[[^\]]*\]|\\\\[a-zA-Z]+|\\[a-zA-Z]+(?:\{[^}]*\})*)/g);
-    return parts;
-  };
-
-  // LaTeX 수식 유효성 검사 함수
-  const isValidLatex = (math: string) => {
-    // 기본적인 LaTeX 문법 검사
-    // 괄호 짝 맞추기, 명령어 구조 등
-    try {
-      // \text{} 명령어의 중괄호 짝 맞추기 검사
-      const textMatches = math.match(/\\text\{/g);
-      const textEndMatches = math.match(/\}/g);
-      if (textMatches && textEndMatches) {
-        if (textMatches.length > textEndMatches.length) {
-          return false; // 중괄호가 닫히지 않음
-        }
-      }
-      
-      // 독립적인 LaTeX 명령어 검사 (\\[4pt], \\, \quad 등)
-      if (math.match(/^\\\\\[[^\]]*\]$/) || // \\[4pt] 형태
-          math.match(/^\\\\[a-zA-Z]+$/) ||   // \\ 명령어
-          math.match(/^\\[a-zA-Z]+(?:\{[^}]*\})*$/)) { // \quad, \text{} 등
-        return true;
-      }
-      
-      return true;
-    } catch (error) {
-      return false;
-    }
-  };
-
-  // 코드 블록 내 마크다운 포맷팅 처리 함수
-  const processCodeBlockFormatting = (content: string) => {
-    // 볼드 처리 (**text** 또는 __text__)
-    const boldRegex = /\*\*(.*?)\*\*|__(.*?)__/g;
-    const parts: (string | React.ReactElement)[] = [];
-    let lastIndex = 0;
-    let match;
-    
-    while ((match = boldRegex.exec(content)) !== null) {
-      // 매치 이전 텍스트 추가
-      if (match.index > lastIndex) {
-        parts.push(content.slice(lastIndex, match.index));
-      }
-      
-      // 볼드 텍스트 추가
-      const boldText = match[1] || match[2];
-      parts.push(
-        <strong key={`bold-${match.index}`} className={`${isDarkMode ? 'text-white' : 'text-gray-900'} font-semibold ${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'}`}>
-          {boldText}
-        </strong>
-      );
-      
-      lastIndex = match.index + match[0].length;
-    }
-    
-    // 남은 텍스트 추가
-    if (lastIndex < content.length) {
-      parts.push(content.slice(lastIndex));
-    }
-    
-    return parts.length > 0 ? parts : [content];
-  };
+  // 더 이상 필요하지 않은 함수들 제거됨
 
   // 워커 설정은 App.tsx에서 전역적으로 처리됨
   
@@ -150,29 +67,16 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   const [isResizing, setIsResizing] = useState(false);
   const [pageInputValue, setPageInputValue] = useState('1');
   
-  // AI 튜터 탭 상태 - 번역 탭 추가
-  const [activeTab, setActiveTab] = useState<'summary' | 'translate' | 'quiz' | 'chat'>('summary');
+  // AI 사이드바는 항상 채팅만 표시
   const [aiMessage, setAiMessage] = useState('');
   const [chatHistory, setChatHistory] = useState<Array<{id: string, type: 'user' | 'ai', message: string}>>([]);
   
-  // 번역 관련 상태
-  const [translateLanguage, setTranslateLanguage] = useState('ko-to-en');
-  const [translatedContent, setTranslatedContent] = useState('');
-  const [isTranslating, setIsTranslating] = useState(false);
+  // 텍스트 선택 관련 상태
+  const [selectedText, setSelectedText] = useState<string>('');
+  const [selectionPosition, setSelectionPosition] = useState<{x: number, y: number} | null>(null);
+  const [showTextActions, setShowTextActions] = useState<boolean>(false);
   
-  // 요약 결과를 번역에서 재활용하기 위한 상태
-  const [summaryForTranslation, setSummaryForTranslation] = useState<string>('');
-  
-  // 퀴즈 설정 상태
-  const [showQuizSettings, setShowQuizSettings] = useState(false);
-  const [quizType, setQuizType] = useState<'ox' | 'multiple4' | 'multiple5' | 'fillblank'>('multiple5');
-
-  // AI 관련 상태
-  const [summary, setSummary] = useState<string>('');
-  const [isLoadingSummary, setIsLoadingSummary] = useState(false);
-  const [quiz, setQuiz] = useState<any>(null);
-  const [isLoadingQuiz, setIsLoadingQuiz] = useState(false);
-  const [quizCount, setQuizCount] = useState(5);
+  // 채팅 전용 상태만 유지
   
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfViewerRef = useRef<HTMLDivElement>(null);
@@ -227,106 +131,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
   }, [mapSidebarOpen, aiSidebarOpen, calculatePdfScale]);
   
 
-  // AI API 호출 함수들
-  const fetchSummary = async () => {
-    try {
-      setIsLoadingSummary(true);
-      const response = await fetch(`/api/pdfs/${pdfId}/summary`, {
-        method: 'GET',
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error('요약 요청에 실패했습니다.');
-      }
-
-      const data = await response.json();
-      setSummary(data.summary);
-      
-      // 요약 결과를 번역에서도 사용할 수 있도록 저장
-      setSummaryForTranslation(data.summary);
-      
-      // 캐시된 데이터인지 확인하고 사용자에게 알림
-      if (data.fromCache) {
-      } else {
-      }
-    } catch (error) {
-      console.error('요약 요청 에러:', error);
-      toast.error('요약을 가져오는데 실패했습니다.');
-    } finally {
-      setIsLoadingSummary(false);
-    }
-  };
-
-  const fetchTranslation = async (targetLanguage: string) => {
-    try {
-      setIsTranslating(true);
-      
-      // 먼저 요약이 있는지 확인 (summaryForTranslation 우선 사용)
-      if (!summaryForTranslation) {
-        toast.info('요약을 먼저 생성한 후 번역을 진행합니다.');
-        await fetchSummary();
-      }
-      
-      const response = await fetch(`/api/pdfs/${pdfId}/translate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ 
-          targetLanguage,
-          sourceContent: summaryForTranslation || summary // 요약 결과를 번역 API에 전달
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('번역 요청에 실패했습니다.');
-      }
-
-      const data = await response.json();
-      setTranslatedContent(data.translation);
-      
-      // 캐시된 데이터인지 확인하고 사용자에게 알림
-      if (data.fromCache) {
-        toast.success('기존 번역을 불러왔습니다.');
-      } else {
-        toast.success('번역이 완료되었습니다.');
-      }
-    } catch (error) {
-      console.error('번역 요청 에러:', error);
-      toast.error('번역에 실패했습니다.');
-    } finally {
-      setIsTranslating(false);
-    }
-  };
-
-  const fetchQuiz = async () => {
-    try {
-      setIsLoadingQuiz(true);
-      const response = await fetch(`/api/pdfs/${pdfId}/quiz`, {
-        method: 'GET',
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error('퀴즈 요청에 실패했습니다.');
-      }
-
-      const data = await response.json();
-      setQuiz(data.quiz);
-      
-      // 캐시된 데이터인지 확인하고 사용자에게 알림
-      if (data.fromCache) {
-      } else {
-      }
-    } catch (error) {
-      console.error('퀴즈 요청 에러:', error);
-      toast.error('퀴즈를 가져오는데 실패했습니다.');
-    } finally {
-      setIsLoadingQuiz(false);
-    }
-  };
+  // 더 이상 필요하지 않은 함수들 제거됨
   
   
   // PDF 목록에서 SVG 데이터 가져오기
@@ -409,14 +214,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     loadPdf();
   }, [pdfId]);
 
-  // PDF 로드 완료 후 AI 정보 자동 로드
-  useEffect(() => {
-    if (pdfUrl && !isLoading && !error) {
-      // AI 정보 자동 로드
-      fetchSummary();
-      fetchQuiz();
-    }
-  }, [pdfUrl, isLoading, error]);
+  // 더 이상 자동 로드 불필요
   
   // 채팅 자동 스크롤을 위한 ref
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
@@ -436,28 +234,61 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
     setAiSidebarOpen(!aiSidebarOpen);
   };
 
-  // 번역 기능
-  const handleTranslate = async () => {
-    // 요약이 없으면 먼저 요약 생성 안내
-    if (!summaryForTranslation && !summary) {
-      toast.info('요약을 먼저 생성한 후 번역을 진행합니다.');
-      await fetchSummary();
-      // 요약 생성 완료 후 번역 실행
-      setTimeout(() => fetchTranslation(translateLanguage), 1000);
+  // 텍스트 선택 처리 함수들
+  const handleTextSelection = useCallback(() => {
+    const selection = window.getSelection();
+    if (selection && selection.toString().trim().length > 0) {
+      const selectedText = selection.toString().trim();
+      setSelectedText(selectedText);
+      
+      // 선택된 텍스트의 위치 계산
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      
+      setSelectionPosition({
+        x: rect.left + rect.width / 2,
+        y: rect.top - 10 // 선택된 텍스트 위에 표시
+      });
+      
+      setShowTextActions(true);
     } else {
-      await fetchTranslation(translateLanguage);
+      setShowTextActions(false);
+      setSelectedText('');
+      setSelectionPosition(null);
     }
-  };
+  }, []);
 
-  // 번역 결과 복사
-  const handleCopyTranslation = async () => {
-    try {
-      await navigator.clipboard.writeText(translatedContent);
-      toast.success('번역 결과가 클립보드에 복사되었습니다.');
-    } catch (err) {
-      toast.error('복사에 실패했습니다.');
+  // 텍스트 액션 버튼 함수들
+  const handleAskQuestion = useCallback(() => {
+    if (selectedText) {
+      const questionMessage = `선택한 텍스트에 대해 질문: "${selectedText}"`;
+      setAiMessage(questionMessage);
+      setShowTextActions(false);
+      // AI 사이드바가 닫혀있다면 열기
+      if (!aiSidebarOpen) {
+        handleAiSidebarToggle();
+      }
     }
-  };
+  }, [selectedText, aiSidebarOpen]);
+
+  const handleTranslateText = useCallback(() => {
+    if (selectedText) {
+      const translateMessage = `다음 텍스트를 번역해주세요: "${selectedText}"`;
+      setAiMessage(translateMessage);
+      setShowTextActions(false);
+      // AI 사이드바가 닫혀있다면 열기
+      if (!aiSidebarOpen) {
+        handleAiSidebarToggle();
+      }
+    }
+  }, [selectedText, aiSidebarOpen]);
+
+  const handleHighlightText = useCallback(() => {
+    if (selectedText) {
+      toast.success(`텍스트가 하이라이트되었습니다: "${selectedText.substring(0, 30)}${selectedText.length > 30 ? '...' : ''}"`);
+      setShowTextActions(false);
+    }
+  }, [selectedText]);
 
 
 
@@ -600,7 +431,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
 
   // 초기 챗봇 메시지 설정
   useEffect(() => {
-    if (activeTab === 'chat' && chatHistory.length === 0) {
+    if (chatHistory.length === 0) {
       const initialMessage = {
         id: 'initial',
         type: 'ai' as const,
@@ -608,22 +439,33 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
       };
       setChatHistory([initialMessage]);
     }
-  }, [activeTab, chatHistory.length, pdfName]);
+  }, [chatHistory.length, pdfName]);
 
-  // 번역 탭이 활성화될 때 초기 번역 실행
+  // 텍스트 선택 이벤트 리스너
   useEffect(() => {
-    if (activeTab === 'translate' && !translatedContent) {
-      // 요약이 이미 있으면 바로 번역, 없으면 요약 먼저 생성
-      if (summaryForTranslation || summary) {
-        handleTranslate();
-      } else {
-        fetchSummary().then(() => {
-          // 요약 생성 완료 후 번역 실행
-          setTimeout(() => handleTranslate(), 500);
-        });
+    const handleSelectionChange = () => {
+      // 약간의 지연을 두어 선택이 완료된 후 처리
+      setTimeout(handleTextSelection, 100);
+    };
+
+    const handleClickOutside = (event: MouseEvent) => {
+      // 텍스트 액션 버튼 외부 클릭 시 숨기기
+      const target = event.target as Element;
+      if (!target.closest('.text-action-buttons')) {
+        setShowTextActions(false);
       }
-    }
-  }, [activeTab, translatedContent, summaryForTranslation, summary]);
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('mouseup', handleSelectionChange);
+    document.addEventListener('click', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('mouseup', handleSelectionChange);
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [handleTextSelection]);
 
 
   // 페이지 이동 함수들
@@ -740,6 +582,50 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
 
   return (
     <div className={`${isDarkMode ? 'bg-[#1a1a1e]' : 'bg-gray-50'} h-screen flex relative overflow-x-auto`}>
+      {/* 텍스트 선택 시 플로팅 액션 버튼들 */}
+      {showTextActions && selectionPosition && (
+        <div 
+          className="fixed z-50 text-action-buttons"
+          style={{
+            left: `${selectionPosition.x}px`,
+            top: `${selectionPosition.y}px`,
+            transform: 'translate(-50%, -100%)'
+          }}
+        >
+          <div className={`flex items-center gap-1 ${isDarkMode ? 'bg-gray-800' : 'bg-white'} rounded-lg shadow-lg border ${isDarkMode ? 'border-gray-600' : 'border-gray-200'} p-1`}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleAskQuestion}
+              className={`h-8 px-2 text-xs ${isDarkMode ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'}`}
+              title="질문하기"
+            >
+              <MessageCircle size={14} className="mr-1" />
+              질문
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleTranslateText}
+              className={`h-8 px-2 text-xs ${isDarkMode ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'}`}
+              title="번역하기"
+            >
+              <Languages size={14} className="mr-1" />
+              번역
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleHighlightText}
+              className={`h-8 px-2 text-xs ${isDarkMode ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'}`}
+              title="하이라이트"
+            >
+              <Highlighter size={14} className="mr-1" />
+              강조
+            </Button>
+          </div>
+        </div>
+      )}
       {/* 메인 콘텐츠 */}
       <div className="flex-1 flex flex-col h-full" style={{ minWidth: '400px' }}>
         {/* 상단 헤더 - 고정 높이 */}
@@ -925,7 +811,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                       // SVG 데이터가 없는 경우 에러 메시지
                       <div className="text-center p-8">
                         <div className="text-red-500 mb-4">
-                          <FileEdit className="h-12 w-12 mx-auto mb-2" />
+                          <X className="h-12 w-12 mx-auto mb-2" />
                           <p className="text-lg font-medium">SVG 데이터를 찾을 수 없습니다</p>
                         </div>
                         <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
@@ -1105,7 +991,7 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
         style={aiSidebarOpen ? { width: `${aiSidebarWidth}px` } : {}}
       >
         <div className="flex flex-col h-full">
-          {/* AI 사이드바 헤더 - 탭 */}
+          {/* AI 사이드바 헤더 - 닫기 버튼만 */}
           <div className={`border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
             {/* 상단 닫기 버튼 */}
             <div className="flex justify-end p-2">
@@ -1118,344 +1004,50 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
                 <X size={16} />
               </Button>
             </div>
-            
-            {/* 탭 메뉴 - 번역 탭 추가 */}
-            <div className="flex">
-              <button
-                onClick={() => setActiveTab('summary')}
-                className={`flex-1 py-3 px-3 text-sm transition-colors border-b-2 ${
-                  activeTab === 'summary'
-                    ? 'border-blue-500 text-blue-500 bg-blue-500/10'
-                    : `border-transparent ${isDarkMode ? 'text-gray-400 hover:text-gray-300' : 'text-gray-600 hover:text-gray-700'}`
-                }`}
-              >
-                요약
-              </button>
-              <button
-                onClick={() => setActiveTab('translate')}
-                className={`flex-1 py-3 px-3 text-sm transition-colors border-b-2 ${
-                  activeTab === 'translate'
-                    ? 'border-blue-500 text-blue-500 bg-blue-500/10'
-                    : `border-transparent ${isDarkMode ? 'text-gray-400 hover:text-gray-300' : 'text-gray-600 hover:text-gray-700'}`
-                }`}
-              >
-                번역
-              </button>
-              <button
-                onClick={() => setActiveTab('quiz')}
-                className={`flex-1 py-3 px-3 text-sm transition-colors border-b-2 ${
-                  activeTab === 'quiz'
-                    ? 'border-blue-500 text-blue-500 bg-blue-500/10'
-                    : `border-transparent ${isDarkMode ? 'text-gray-400 hover:text-gray-300' : 'text-gray-600 hover:text-gray-700'}`
-                }`}
-              >
-                퀴즈
-              </button>
-              <button
-                onClick={() => setActiveTab('chat')}
-                className={`flex-1 py-3 px-3 text-sm transition-colors border-b-2 ${
-                  activeTab === 'chat'
-                    ? 'border-blue-500 text-blue-500 bg-blue-500/10'
-                    : `border-transparent ${isDarkMode ? 'text-gray-400 hover:text-gray-300' : 'text-gray-600 hover:text-gray-700'}`
-                }`}
-              >
-                챗봇질문
-              </button>
-            </div>
           </div>
 
-          {/* 탭 콘텐츠 */}
-          {activeTab === 'summary' && (
-            <div className="flex flex-col h-full">
-              {/* 액션 버튼들 */}
-              <div className={`p-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={`flex-1 ${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          {/* 채팅 기능만 유지 */}
+          <div className="flex flex-col h-full">
+            {/* 채팅 히스토리 - 고정 높이와 스크롤 */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+              {chatHistory.map((chat) => (
+                <div key={chat.id} className={`flex ${chat.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[80%] p-3 rounded-lg ${
+                      chat.type === 'user'
+                        ? 'bg-blue-500 text-white'
+                        : isDarkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-gray-900'
+                    }`}
                   >
-                    <FileEdit size={14} className="mr-2" />
-                    문서로 수정하기
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={`flex-1 ${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-                  >
-                    <Share2 size={14} className="mr-2" />
-                    공유
-                  </Button>
+                    <p className="text-sm leading-relaxed">{chat.message}</p>
+                  </div>
                 </div>
-              </div>
-
-              {/* 요약 내용 */}
-              <div className="flex-1 overflow-y-auto p-4">
-                {isLoadingSummary ? (
-                  <div className="flex items-center justify-center h-32">
-                    <div className="flex items-center space-x-2">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                      <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>요약 중...</span>
-                    </div>
-                  </div>
-                                 ) : summary ? (
-                   <div className="prose prose-sm max-w-none">
-                     <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} mb-4 flex items-center`}>
-                       <FileEdit size={16} className="mr-2" />
-                       문서 요약
-                     </h3>
-                     <div className={`${isDarkMode ? 'bg-gradient-to-br from-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-50 to-white'} p-6 rounded-xl border ${isDarkMode ? 'border-gray-700 shadow-lg' : 'border-gray-200 shadow-md'} backdrop-blur-sm`}>
-                       <div className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm leading-relaxed prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}>
-                         <HtmlRenderer html={summary} isDarkMode={isDarkMode} />
-                       </div>
-                     </div>
-                   </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <FileEdit size={48} className={`mx-auto mb-4 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
-                    <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                      요약을 생성하는 중입니다...
-                    </p>
-                  </div>
-                )}
-              </div>
+              ))}
+              {/* 자동 스크롤을 위한 끝점 */}
+              <div ref={chatMessagesEndRef} />
             </div>
-          )}
 
-          {activeTab === 'translate' && (
-            <div className="flex flex-col h-full">
-              {/* 번역 설정 및 액션 버튼들 */}
-              <div className={`p-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                <div className="space-y-3">
-                  {/* 언어 선택 */}
-                  <div>
-                    <Label className={`${isDarkMode ? 'text-[#efefef]' : 'text-gray-700'} text-sm mb-2 block`}>
-                      번역 언어
-                    </Label>
-                    <Select value={translateLanguage} onValueChange={setTranslateLanguage}>
-                      <SelectTrigger className={`w-full ${isDarkMode ? 'bg-[#2A2A2E] border-gray-600 text-[#efefef]' : 'bg-white border-gray-300 text-gray-900'}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className={isDarkMode ? 'bg-[#2A2A2E] border-gray-600' : 'bg-white border-gray-200'}>
-                        {LANGUAGE_OPTIONS.map((option) => (
-                          <SelectItem 
-                            key={option.value} 
-                            value={option.value}
-                            className={isDarkMode ? 'text-[#efefef] hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'}
-                          >
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* 액션 버튼들 */}
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={handleTranslate}
-                      disabled={isTranslating || isLoadingSummary}
-                      className="flex-1 bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50"
-                    >
-                      <Languages size={14} className="mr-2" />
-                      {isTranslating || isLoadingSummary 
-                        ? (isLoadingSummary ? '요약 생성 중...' : '번역 중...') 
-                        : '번역하기'
-                      }
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCopyTranslation}
-                      disabled={!translatedContent}
-                      className={`${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-                    >
-                      <Copy size={14} className="mr-2" />
-                      복사
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!translatedContent}
-                      className={`${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-                    >
-                      <Share2 size={14} className="mr-2" />
-                      공유
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {/* 번역 결과 */}
-              <div className="flex-1 overflow-y-auto p-4">
-                {isTranslating ? (
-                  <div className="flex items-center justify-center h-32">
-                    <div className="flex items-center space-x-2">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                      <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                        {!summaryForTranslation && !summary ? '요약 생성 중...' : '번역 중...'}
-                      </span>
-                    </div>
-                  </div>
-                                 ) : translatedContent ? (
-                   <div className="prose prose-sm max-w-none">
-                     <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} mb-4 flex items-center`}>
-                       <Languages size={16} className="mr-2" />
-                       번역 결과
-                     </h3>
-                     <div className={`${isDarkMode ? 'bg-gradient-to-br from-gray-800 to-gray-900' : 'bg-gradient-to-br from-gray-50 to-white'} p-6 rounded-xl border ${isDarkMode ? 'border-gray-700 shadow-lg' : 'border-gray-200 shadow-md'} backdrop-blur-sm`}>
-                       <div className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm leading-relaxed prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}>
-                         <HtmlRenderer html={translatedContent} isDarkMode={isDarkMode} />
-                       </div>
-                     </div>
-                   </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <Languages size={48} className={`mx-auto mb-4 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
-                    <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-4`}>
-                      번역하기 버튼을 클릭하여 문서를 번역하세요.
-                    </p>
-                    {!summaryForTranslation && !summary && (
-                      <div className={`${isDarkMode ? 'bg-yellow-900/20 border-yellow-700' : 'bg-yellow-50 border-yellow-200'} border rounded-lg p-3`}>
-                        <p className={`${isDarkMode ? 'text-yellow-300' : 'text-yellow-700'} text-sm`}>
-                          💡 <strong>팁:</strong> 요약을 먼저 생성하면 더 정확한 번역 결과를 얻을 수 있습니다.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'quiz' && (
-            <div className="flex flex-col h-full">
-              {/* 액션 버튼들 */}
-              <div className={`p-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                <div className="flex gap-2 mb-3">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={`flex-1 ${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-                  >
-                    <BookOpen size={14} className="mr-2" />
-                    문제집으로 보기
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={`flex-1 ${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-                  >
-                    <Share2 size={14} className="mr-2" />
-                    공유
-                  </Button>
-                </div>
+            {/* 메시지 입력 - 고정 */}
+            <div className={`p-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} flex-shrink-0`}>
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  placeholder="AI 튜터에게 질문하세요..."
+                  value={aiMessage}
+                  onChange={(e) => setAiMessage(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendAiMessage()}
+                  className={`flex-1 ${isDarkMode ? 'bg-[#3e3b3b] border-gray-600 text-[#efefef] placeholder:text-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder:text-gray-500'}`}
+                />
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowQuizSettings(true)}
-                  className={`w-full ${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                  onClick={handleSendAiMessage}
+                  disabled={!aiMessage.trim()}
+                  className="bg-blue-500 hover:bg-blue-600 text-white"
                 >
-                  <SettingsIcon size={14} className="mr-2" />
-                  퀴즈 설정
+                  전송
                 </Button>
               </div>
-
-              {/* 퀴즈 내용 */}
-              <div className="flex-1 overflow-y-auto p-4">
-                {isLoadingQuiz ? (
-                  <div className="flex items-center justify-center h-32">
-                    <div className="flex items-center space-x-2">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                      <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>퀴즈 생성 중...</span>
-                    </div>
-                  </div>
-                ) : quiz ? (
-                  <div className="space-y-6">
-                    {quiz.questions && quiz.questions.map((question: any, index: number) => (
-                      <div key={index}>
-                        <h3 className={`${isDarkMode ? 'text-white' : 'text-gray-900'} text-lg mb-4`}>
-                          문제 {index + 1}
-                        </h3>
-                        <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-4 leading-relaxed`}>
-                          {question.question}
-                        </p>
-                        
-                        <div className="space-y-3">
-                          {question.options && question.options.map((option: string, optionIndex: number) => (
-                            <button
-                              key={optionIndex}
-                              className={`w-full text-left p-3 rounded border transition-colors ${isDarkMode ? 'border-gray-600 text-gray-300 hover:border-blue-500 hover:bg-blue-500/10' : 'border-gray-300 text-gray-700 hover:border-blue-500 hover:bg-blue-50'}`}
-                            >
-                              <span className="text-blue-400 mr-3">{optionIndex + 1}.</span>
-                              {option}
-                            </button>
-                          ))}
-                        </div>
-                        
-                        <div className="mt-4 p-3 bg-green-100 border border-green-300 rounded">
-                          <p className="text-green-800 text-sm">
-                            <strong>정답:</strong> {question.answer}번
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <BookOpen size={48} className={`mx-auto mb-4 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
-                    <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                      퀴즈를 생성하는 중입니다...
-                    </p>
-                  </div>
-                )}
-              </div>
             </div>
-          )}
-
-          {activeTab === 'chat' && (
-            <div className="flex flex-col h-full">
-              {/* 채팅 히스토리 - 고정 높이와 스크롤 */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
-                {chatHistory.map((chat) => (
-                  <div key={chat.id} className={`flex ${chat.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div
-                      className={`max-w-[80%] p-3 rounded-lg ${
-                        chat.type === 'user'
-                          ? 'bg-blue-500 text-white'
-                          : isDarkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-gray-900'
-                      }`}
-                    >
-                      <p className="text-sm leading-relaxed">{chat.message}</p>
-                    </div>
-                  </div>
-                ))}
-                {/* 자동 스크롤을 위한 끝점 */}
-                <div ref={chatMessagesEndRef} />
-              </div>
-
-              {/* 메시지 입력 - 고정 */}
-              <div className={`p-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} flex-shrink-0`}>
-                <div className="flex gap-2">
-                  <Input
-                    type="text"
-                    placeholder="AI 튜터에게 질문하세요..."
-                    value={aiMessage}
-                    onChange={(e) => setAiMessage(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendAiMessage()}
-                    className={`flex-1 ${isDarkMode ? 'bg-[#3e3b3b] border-gray-600 text-[#efefef] placeholder:text-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder:text-gray-500'}`}
-                  />
-                  <Button
-                    onClick={handleSendAiMessage}
-                    disabled={!aiMessage.trim()}
-                    className="bg-blue-500 hover:bg-blue-600 text-white"
-                  >
-                    전송
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
 
         {/* AI 사이드바 리사이즈 핸들 */}
@@ -1469,77 +1061,6 @@ export function PdfDetailPage({ pdfId, pdfName, onBack, isDarkMode }: PdfDetailP
         )}
       </div>
 
-      {/* 퀴즈 설정 다이얼로그 */}
-      <Dialog open={showQuizSettings} onOpenChange={setShowQuizSettings}>
-        <DialogContent className={`${isDarkMode ? 'bg-[#121214] border-gray-600' : 'bg-white border-gray-200'} max-w-md`}>
-          <DialogHeader>
-            <DialogTitle className={isDarkMode ? 'text-[#efefef]' : 'text-gray-900'}>
-              퀴즈 설정
-            </DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-6">
-            <div>
-              <Label className={isDarkMode ? 'text-[#efefef]' : 'text-gray-700'}>
-                문제 유형
-              </Label>
-              <Select value={quizType} onValueChange={(value: any) => setQuizType(value)}>
-                <SelectTrigger className={`w-full mt-2 ${isDarkMode ? 'bg-[#2A2A2E] border-gray-600 text-[#efefef]' : 'bg-white border-gray-300 text-gray-900'}`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className={isDarkMode ? 'bg-[#2A2A2E] border-gray-600' : 'bg-white border-gray-200'}>
-                  <SelectItem value="ox" className={isDarkMode ? 'text-[#efefef] hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'}>OX 퀴즈</SelectItem>
-                  <SelectItem value="multiple4" className={isDarkMode ? 'text-[#efefef] hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'}>객관식 (4지선다)</SelectItem>
-                  <SelectItem value="multiple5" className={isDarkMode ? 'text-[#efefef] hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'}>객관식 (5지선다)</SelectItem>
-                  <SelectItem value="fillblank" className={isDarkMode ? 'text-[#efefef] hover:bg-gray-700' : 'text-gray-900 hover:bg-gray-100'}>빈칸 채우기</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label className={isDarkMode ? 'text-[#efefef]' : 'text-gray-700'}>
-                문제 수: {quizCount}개
-              </Label>
-              <div className="mt-2">
-                <input
-                  type="range"
-                  min="1"
-                  max="20"
-                  value={quizCount}
-                  onChange={(e) => setQuizCount(parseInt(e.target.value))}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
-                />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>1</span>
-                  <span>10</span>
-                  <span>20</span>
-                </div>
-              </div>
-            </div>
-
-            <Separator className={isDarkMode ? 'bg-gray-700' : 'bg-gray-200'} />
-
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowQuizSettings(false)}
-                className={`flex-1 ${isDarkMode ? 'border-gray-600 text-[#efefef] hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-              >
-                취소
-              </Button>
-              <Button
-                onClick={() => {
-                  setShowQuizSettings(false);
-                  toast.success(`${quizType === 'ox' ? 'OX' : quizType === 'multiple4' ? '4지선다' : quizType === 'multiple5' ? '5지선다' : '빈칸채우기'} 퀴즈 ${quizCount}문제로 설정되었습니다.`);
-                }}
-                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
-              >
-                적용
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
