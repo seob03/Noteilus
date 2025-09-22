@@ -196,6 +196,7 @@ export function PdfDetailPage({
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfViewerRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
+  const currentPageImgRef = useRef<HTMLImageElement | null>(null);
 
   // 화면 크기 감지 및 PDF 크기 조정
   const calculatePdfScale = useCallback(() => {
@@ -685,6 +686,25 @@ export function PdfDetailPage({
     }
   }, [isResizing, handleMouseMoveResize, handleMouseUpResize]);
 
+  // 현재 페이지 이미지 크기 변화를 관찰하여 텍스트 레이어 정렬 유지
+  useEffect(() => {
+    const img = currentPageImgRef.current;
+    if (!img) return;
+
+    const updateSize = () => {
+      setRenderedSize({ width: img.clientWidth, height: img.clientHeight });
+    };
+
+    updateSize();
+    const ro = new ResizeObserver(() => {
+      updateSize();
+    });
+    ro.observe(img);
+    return () => {
+      ro.disconnect();
+    };
+  }, [currentPage, allPagesSvg]);
+
   // 페이지 번호 입력 핸들러
   const handlePageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -1163,6 +1183,11 @@ export function PdfDetailPage({
                                     ? 'eager'
                                     : 'lazy'
                                 }
+                                ref={(el) => {
+                                  if (pageData.pageNumber === currentPage) {
+                                    currentPageImgRef.current = el;
+                                  }
+                                }}
                                 onLoad={(e) => {
                                   if (pageData.pageNumber === currentPage) {
                                     // 현재 페이지의 SVG가 로드되면 크기 정보 업데이트
@@ -1177,11 +1202,10 @@ export function PdfDetailPage({
                                       setTimeout(() => {
                                         calculatePdfScale();
                                       }, 100);
-                                      
-                                      const rect = img.getBoundingClientRect();
+                                      // 뷰포트 내 실제 렌더 크기 저장 (스크롤바 변동에도 대응)
                                       setRenderedSize({
-                                        width: rect.width,
-                                        height: rect.height,
+                                        width: img.clientWidth,
+                                        height: img.clientHeight,
                                       });
                                     }
                                   }
@@ -1429,16 +1453,16 @@ export function PdfDetailPage({
             </div>
           </div>
 
-          {/* SVG 페이지 미리보기 - 스크롤 가능 */}
-          <div className='flex-1 overflow-y-auto space-y-4 pr-2 flex flex-col items-center'>
+          {/* SVG 페이지 미리보기 - 스크롤 가능 (스크롤바 공간 고정으로 레이아웃 안정화) */}
+          <div className='flex-1 overflow-y-auto space-y-4 pr-3 pt-2 flex flex-col items-center scrollbar-gutter-stable'>
             {allPagesSvg ? (
               allPagesSvg.map((pageData) => (
                 <div key={`page_${pageData.pageNumber}`} className='relative'>
                   <div
                     className={`w-full rounded cursor-pointer transition-all hover:opacity-80 ${
                       currentPage === pageData.pageNumber
-                        ? 'ring-2 ring-blue-500'
-                        : ''
+                        ? 'border-2 border-blue-500'
+                        : 'border border-transparent'
                     }`}
                     onClick={() => setCurrentPage(pageData.pageNumber)}
                   >
