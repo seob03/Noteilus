@@ -25,7 +25,7 @@ export default function App() {
   }, []);
 
   const [currentPage, setCurrentPage] = useState<Page>("main");
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userEmail, setUserEmail] = useState(null);
   const [userName, setUserName] = useState("Guest");

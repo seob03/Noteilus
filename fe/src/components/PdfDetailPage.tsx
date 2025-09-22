@@ -8,6 +8,7 @@ import {
   MessageCircle,
   Languages,
   Highlighter,
+  Loader2,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -1090,12 +1091,11 @@ export function PdfDetailPage({
                 transition: 'transform 0.2s ease-in-out',
               }}
             >
-            {allPagesSvg ? (
+            {allPagesSvg && !svgLoading ? (
               // SVG 뷰어
               <div>
-                {!svgLoading ? (
-                  <div className='w-full flex items-center justify-center' style={{ maxHeight: '80vh' }}>
-                    {allPagesSvg.map((pageData) => {
+                <div className='w-full flex items-center justify-center' style={{ maxHeight: '80vh' }}>
+                  {allPagesSvg.map((pageData) => {
                       const shouldRender =
                         pageData.pageNumber === currentPage ||
                         (loadedPages.has(pageData.pageNumber) &&
@@ -1262,26 +1262,17 @@ export function PdfDetailPage({
                           )}
                         </div>
                       );
-                    })}
-                  </div>
-                ) : null}
+                  })}
+                </div>
               </div>
             ) : (
-              // SVG 데이터가 없는 경우 에러 메시지
               <div className='text-center p-8'>
-                <div className='text-red-500 mb-4'>
-                  <X className='h-12 w-12 mx-auto mb-2' />
-                  <p className='text-lg font-medium'>
-                    SVG 데이터를 찾을 수 없습니다
+                <div className='inline-flex items-center gap-2'>
+                  <Loader2 className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'} h-5 w-5 animate-spin`} />
+                  <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                    데이터 불러오는 중...
                   </p>
                 </div>
-                <p
-                  className={`${
-                    isDarkMode ? 'text-gray-300' : 'text-gray-600'
-                  }`}
-                >
-                  이 PDF의 SVG 버전이 아직 생성되지 않았습니다.
-                </p>
               </div>
             )}
             </div>
