@@ -369,9 +369,7 @@ export function PdfDetailPage({
       while (probe && probe !== document.body) {
         if (
           probe.classList?.contains('svg-page') ||
-          probe.classList?.contains('text-overlay') ||
-          (containerRef.current && probe === containerRef.current) ||
-          (pdfViewerRef.current && probe === pdfViewerRef.current)
+          probe.classList?.contains('text-overlay')
         ) {
           isInsidePdf = true;
           break;
