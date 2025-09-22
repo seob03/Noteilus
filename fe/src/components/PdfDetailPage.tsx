@@ -202,38 +202,13 @@ export function PdfDetailPage({
     if (!viewer || !pdfDimensions) return;
     
     const viewerRect = viewer.getBoundingClientRect();
-    const availableWidth = viewerRect.width - 80; // 좌우 마진
-    const availableHeight = viewerRect.height - 120; // 페이지 네비게이션과 여유공간 확보
-    
-    // 비율에 따른 스케일 계산
+    const availableWidth = viewerRect.width - 48; // 좌우 여백
+    const availableHeight = viewerRect.height - 80; // 페이지 네비 여백
+
     const widthScale = availableWidth / pdfDimensions.width;
     const heightScale = availableHeight / pdfDimensions.height;
-    
-    // 더 보수적인 스케일 선택 - 스크롤 없이 완전히 보이도록
-    const newScale = Math.min(widthScale, heightScale);
-    
-    // 세로로 긴 PDF의 경우 추가 제한
-    const aspectRatio = pdfDimensions.width / pdfDimensions.height;
-    let finalScale = newScale;
-    
-    if (aspectRatio < 0.8) { // 세로로 긴 경우
-      finalScale = Math.min(newScale, 0.5); // 최대 50%로 더 제한하여 확실히 맞추기
-    }
-    
-    console.log('크기 계산:', {
-      availableWidth,
-      availableHeight,
-      pdfWidth: pdfDimensions.width,
-      pdfHeight: pdfDimensions.height,
-      aspectRatio,
-      widthScale,
-      heightScale,
-      newScale,
-      finalScale,
-      mapSidebarOpen,
-      aiSidebarOpen
-    });
-    
+    const finalScale = Math.min(widthScale, heightScale);
+
     setPdfScale(finalScale);
   }, [pdfDimensions, mapSidebarOpen, aiSidebarOpen]);
 
@@ -1050,7 +1025,7 @@ export function PdfDetailPage({
             <h1
               className={`${
                 isDarkMode ? 'text-white' : 'text-gray-900'
-              } text-lg font-medium text-center`}
+              } text-lg font-medium text-center truncate max-w-[60%] px-2`}
             >
               {pdfName}
             </h1>
@@ -1077,21 +1052,10 @@ export function PdfDetailPage({
 
         {/* PDF 뷰어 및 캔버스 - 브라우저 높이에서 헤더를 뺀 나머지 공간 사용 */}
         <div
-          className='flex flex-col items-center'
-          style={{ height: 'calc(100vh - 64px)' }}
+          className='flex flex-col items-center px-4 py-4'
+          style={{ height: 'calc(100vh - 64px)', paddingTop: '0.75cm' }}
           ref={pdfViewerRef}
         >
-          {/* 로딩 상태 */}
-          {isLoading && (
-            <div className='text-center'>
-              <div className='animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4'></div>
-              <p
-                className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}
-              >
-                PDF를 로드하는 중...
-              </p>
-            </div>
-          )}
 
           {/* 에러 상태 */}
           {error && (
@@ -1115,6 +1079,8 @@ export function PdfDetailPage({
           {/* PDF 컨테이너 - 페이지 네비게이션 공간 확보 */}
           <div className='flex-1 flex flex-col items-center min-h-0' style={{ maxHeight: 'calc(100vh - 64px - 80px)' }}>
             {/* SVG PDF 뷰어 또는 react-pdf Document */}
+            {/* 상단 공간 확보는 컨테이너 margin-top으로 처리됨 */}
+
             <div
               className='relative inline-block flex-shrink-0'
               ref={containerRef}
@@ -1127,18 +1093,7 @@ export function PdfDetailPage({
             {allPagesSvg ? (
               // SVG 뷰어
               <div>
-                {svgLoading ? (
-                  <div className='text-center'>
-                    <div className='animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4'></div>
-                    <p
-                      className={`${
-                        isDarkMode ? 'text-gray-300' : 'text-gray-600'
-                      }`}
-                    >
-                      SVG 페이지를 로드하는 중...
-                    </p>
-                  </div>
-                ) : (
+                {!svgLoading ? (
                   <div className='w-full flex items-center justify-center' style={{ maxHeight: '80vh' }}>
                     {allPagesSvg.map((pageData) => {
                       const shouldRender =
@@ -1158,7 +1113,7 @@ export function PdfDetailPage({
                             isDarkMode
                               ? 'border-gray-700/60'
                               : 'border-gray-200/80'
-                          } bg-white rounded-xl shadow-xl border mx-auto p-5`}
+                          } bg-white rounded-2xl shadow-xl border-2 overflow-hidden mx-auto p-5`}
                           style={{
                             transform: `scale(${pdfScale})`,
                             transformOrigin: 'center center',
@@ -1303,15 +1258,13 @@ export function PdfDetailPage({
                                 )}
                             </div>
                           ) : (
-                            <div className='w-full h-96 bg-gray-100 flex items-center justify-center'>
-                              <p className='text-gray-500'>페이지 로딩 중...</p>
-                            </div>
+                            null
                           )}
                         </div>
                       );
                     })}
                   </div>
-                )}
+                ) : null}
               </div>
             ) : (
               // SVG 데이터가 없는 경우 에러 메시지
