@@ -1325,10 +1325,10 @@ export function PdfDetailPage({
       <div
         className={`${
           isDarkMode ? 'bg-[#121214]' : 'bg-white'
-        } transition-all duration-300 flex-shrink-0 relative border-l ${
+        } ${!isResizing ? 'transition-all duration-300' : ''} flex-shrink-0 relative border-l ${
           isDarkMode ? 'border-gray-700' : 'border-gray-200'
         } h-full ${mapSidebarOpen ? '' : 'w-0 overflow-hidden'}`}
-        style={mapSidebarOpen ? { width: `${mapSidebarWidth}px` } : {}}
+        style={mapSidebarOpen ? { width: `${mapSidebarWidth}px`, ...(isResizing ? { willChange: 'width' } : {}) } : {}}
       >
         <div
           className='p-4 h-full flex flex-col'
@@ -1489,10 +1489,10 @@ export function PdfDetailPage({
       <div
         className={`${
           isDarkMode ? 'bg-[#121214]' : 'bg-white'
-        } transition-all duration-300 flex-shrink-0 relative border-l ${
+        } ${!isResizing ? 'transition-all duration-300' : ''} flex-shrink-0 relative border-l ${
           isDarkMode ? 'border-gray-700' : 'border-gray-200'
         } h-screen ${aiSidebarOpen ? '' : 'w-0 overflow-hidden'}`}
-        style={aiSidebarOpen ? { width: `${aiSidebarWidth}px` } : {}}
+        style={aiSidebarOpen ? { width: `${aiSidebarWidth}px`, ...(isResizing ? { willChange: 'width' } : {}) } : {}}
       >
         <div className='flex flex-col h-full'>
           {/* AI 사이드바 헤더 - PDF 헤더 높이와 동일하게 */}
