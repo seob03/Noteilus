@@ -356,22 +356,46 @@ export function PdfDetailPage({
     const selection = window.getSelection();
     if (selection && selection.toString().trim().length > 0) {
       const selectedText = selection.toString().trim();
-      setSelectedText(selectedText);
-
-      // 선택된 텍스트의 위치 계산
+      // 선택된 영역이 PDF 뷰어 내부인지 확인 (AI 채팅 등 외부 선택은 무시)
       const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-
-      // 선택된 텍스트가 포함된 페이지 번호 찾기
       const selectedElement = range.commonAncestorContainer;
-      let pageNumber = currentPage; // 기본값은 현재 페이지
-
-      // 선택된 요소의 부모들을 순회하면서 페이지 정보를 찾음
       let element =
         selectedElement.nodeType === Node.TEXT_NODE
           ? selectedElement.parentElement
           : (selectedElement as Element);
 
+      let isInsidePdf = false;
+      let probe: Element | null = element;
+      while (probe && probe !== document.body) {
+        if (
+          probe.classList?.contains('svg-page') ||
+          probe.classList?.contains('text-overlay') ||
+          (containerRef.current && probe === containerRef.current) ||
+          (pdfViewerRef.current && probe === pdfViewerRef.current)
+        ) {
+          isInsidePdf = true;
+          break;
+        }
+        probe = probe.parentElement;
+      }
+
+      if (!isInsidePdf) {
+        setShowTextActions(false);
+        setSelectedText('');
+        setSelectedTextPageNumber(null);
+        setSelectionPosition(null);
+        return;
+      }
+
+      setSelectedText(selectedText);
+
+      // 선택된 텍스트의 위치 계산
+      const rect = range.getBoundingClientRect();
+
+      // 선택된 텍스트가 포함된 페이지 번호 찾기
+      let pageNumber = currentPage; // 기본값은 현재 페이지
+
+      // 선택된 요소의 부모들을 순회하면서 페이지 정보를 찾음
       while (element && element !== document.body) {
         // SVG 페이지 컨테이너를 찾음
         if (element.classList?.contains('svg-page')) {
