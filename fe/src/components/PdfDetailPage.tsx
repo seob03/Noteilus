@@ -9,6 +9,7 @@ import {
   Languages,
   Highlighter,
   Loader2,
+  Eraser,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -178,6 +179,119 @@ export function PdfDetailPage({
     }
   }, [pdfId]);
 
+  // 하이라이트 데이터 로드 (DB에서)
+  const loadHighlights = useCallback(async () => {
+    try {
+      console.log('🔍 하이라이트 로드 시작:', pdfId);
+      const response = await fetch(`/api/pdfs/${pdfId}/highlights`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const highlights = await response.json();
+      console.log('✅ 하이라이트 로드 완료:', highlights);
+      
+      // DB에서 받은 하이라이트를 로컬 상태에 설정
+      setHighlights(highlights);
+      
+      // 하이라이트 형광색 적용은 별도의 useEffect에서 처리
+      
+      return highlights;
+    } catch (error) {
+      console.error('❌ 하이라이트 로드 실패:', error);
+      setHighlights([]);
+      return [];
+    }
+  }, [pdfId]);
+
+  // 하이라이트 저장 (DB에)
+  const saveHighlight = useCallback(async (highlightData: {
+    text: string;
+    pageNumber: number;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    pageWidth: number;
+    pageHeight: number;
+  }) => {
+    try {
+      console.log('💾 하이라이트 저장 시작:', highlightData);
+      console.log('📡 요청 URL:', `/api/pdfs/${pdfId}/highlights`);
+      console.log('📡 PDF ID:', pdfId);
+      
+      const response = await fetch(`/api/pdfs/${pdfId}/highlights`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(highlightData),
+      });
+
+      console.log('📡 응답 상태:', response.status);
+      console.log('📡 응답 헤더:', response.headers);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ 서버 응답 에러:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+      }
+
+      const savedHighlight = await response.json();
+      console.log('✅ 하이라이트 저장 완료:', savedHighlight);
+      return savedHighlight;
+    } catch (error) {
+      console.error('❌ 하이라이트 저장 실패:', error);
+      throw error;
+    }
+  }, [pdfId]);
+
+  // 하이라이트 삭제 (DB에서)
+  const deleteHighlight = useCallback(async (highlightId: string) => {
+    try {
+      console.log('🗑️ 하이라이트 삭제 시작:', highlightId);
+      
+      // 삭제할 하이라이트를 미리 저장
+      let deletedHighlight: any = null;
+      
+      // 즉시 로컬 상태에서 제거하여 UI에서 바로 사라지게 함
+      setHighlights(prev => {
+        deletedHighlight = prev.find(h => h._id === highlightId);
+        return prev.filter(h => h._id !== highlightId);
+      });
+      
+      const response = await fetch(`/api/pdfs/highlights/${highlightId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        // 삭제 실패 시 다시 하이라이트를 복원
+        if (deletedHighlight) {
+          setHighlights(prev => [...prev, deletedHighlight]);
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      toast.success('하이라이트가 삭제되었습니다.');
+      console.log('✅ 하이라이트 삭제 완료');
+    } catch (error) {
+      console.error('❌ 하이라이트 삭제 실패:', error);
+      toast.error('하이라이트 삭제에 실패했습니다.');
+    }
+  }, []);
+
   // 텍스트 선택 관련 상태
   const [selectedText, setSelectedText] = useState<string>('');
   const [selectedTextPageNumber, setSelectedTextPageNumber] = useState<
@@ -188,6 +302,45 @@ export function PdfDetailPage({
     y: number;
   } | null>(null);
   const [showTextActions, setShowTextActions] = useState<boolean>(false);
+
+  // 하이라이트 클릭 관련 상태
+  const [clickedHighlight, setClickedHighlight] = useState<{
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // 클릭 이벤트로 지우개 팝업 닫기
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (clickedHighlight) {
+        setClickedHighlight(null);
+      }
+    };
+
+    if (clickedHighlight) {
+      document.addEventListener('click', handleClickOutside);
+      return () => {
+        document.removeEventListener('click', handleClickOutside);
+      };
+    }
+  }, [clickedHighlight]);
+
+  // 하이라이트 관련 상태
+  const [highlights, setHighlights] = useState<Array<{
+    _id?: string;
+    id?: string;
+    text: string;
+    pageNumber: number;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    pageWidth: number;
+    pageHeight: number;
+    createdAt: string;
+  }>>([]);
+  const [isHighlighting, setIsHighlighting] = useState<boolean>(false);
 
   // questionContext로 통합되어 제거됨
 
@@ -330,9 +483,8 @@ export function PdfDetailPage({
   // 컴포넌트 마운트 시 PDF 로드
   useEffect(() => {
     loadPdf();
-  }, [pdfId]);
-
-  // 더 이상 자동 로드 불필요
+    loadHighlights();
+  }, [pdfId, loadHighlights]);
 
   // 채팅 자동 스크롤을 위한 ref
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
@@ -612,6 +764,96 @@ export function PdfDetailPage({
     }
   }, [selectedText, aiSidebarOpen, handleAiSidebarToggle]);
 
+  // 드래그 영역의 하이라이트 삭제
+  const handleEraseHighlights = useCallback(async () => {
+    if (!selectedTextPageNumber) return;
+
+    try {
+      // 현재 페이지의 하이라이트들 중에서 드래그 영역과 겹치는 것들을 찾기
+      const pageHighlights = highlights.filter(h => h.pageNumber === selectedTextPageNumber);
+      
+      if (pageHighlights.length === 0) {
+        toast.info('삭제할 하이라이트가 없습니다.');
+        setShowTextActions(false);
+        return;
+      }
+
+      // 드래그 영역과 겹치는 하이라이트들을 찾기
+      // 현재는 선택된 텍스트가 있는 페이지의 모든 하이라이트를 삭제
+      // 더 정확한 구현을 위해서는 드래그 영역의 좌표를 저장하고 비교해야 함
+      const overlappingHighlights = pageHighlights;
+
+      if (overlappingHighlights.length === 0) {
+        toast.info('선택한 영역에 하이라이트가 없습니다.');
+        setShowTextActions(false);
+        return;
+      }
+
+      // 겹치는 하이라이트들을 삭제
+      const deletePromises = overlappingHighlights.map(highlight => 
+        fetch(`/api/pdfs/highlights/${highlight._id || highlight.id}`, {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+      );
+
+      const responses = await Promise.all(deletePromises);
+      const allSuccessful = responses.every(response => response.ok);
+
+      if (allSuccessful) {
+        // 로컬 상태에서 삭제된 하이라이트들 제거
+        const deletedIds = overlappingHighlights.map(h => h._id || h.id);
+        setHighlights(prev => prev.filter(h => !deletedIds.includes(h._id || h.id)));
+        setShowTextActions(false);
+        toast.success(`${overlappingHighlights.length}개의 하이라이트가 삭제되었습니다.`);
+      } else {
+        throw new Error('일부 하이라이트 삭제에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('❌ 하이라이트 삭제 실패:', error);
+      toast.error('하이라이트 삭제에 실패했습니다.');
+    }
+  }, [selectedTextPageNumber, highlights]);
+
+  // 하이라이트 클릭 핸들러
+  const handleHighlightClick = useCallback((highlightId: string, event: React.MouseEvent) => {
+    console.log('🎯 하이라이트 클릭됨:', highlightId);
+    event.stopPropagation();
+    setClickedHighlight({
+      id: highlightId,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }, []);
+
+  // 개별 하이라이트 삭제
+  const handleDeleteSingleHighlight = useCallback(async (highlightId: string) => {
+    try {
+      const response = await fetch(`/api/pdfs/highlights/${highlightId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      // 로컬 상태에서 해당 하이라이트 제거
+      setHighlights(prev => prev.filter(h => (h._id || h.id) !== highlightId));
+      setClickedHighlight(null);
+      toast.success('하이라이트가 삭제되었습니다.');
+    } catch (error) {
+      console.error('❌ 하이라이트 삭제 실패:', error);
+      toast.error('하이라이트 삭제에 실패했습니다.');
+    }
+  }, []);
+
   const handleTranslateText = useCallback(() => {
     if (selectedText) {
       const translateMessage = `다음 텍스트를 번역해주세요: "${selectedText}"`;
@@ -624,17 +866,99 @@ export function PdfDetailPage({
     }
   }, [selectedText, selectedTextPageNumber, aiSidebarOpen]);
 
-  const handleHighlightText = useCallback(() => {
-    if (selectedText && selectedTextPageNumber) {
-      toast.success(
-        `${selectedTextPageNumber}페이지 텍스트가 하이라이트되었습니다: "${selectedText.substring(
-          0,
-          30
-        )}${selectedText.length > 30 ? '...' : ''}"`
-      );
-      setShowTextActions(false);
+  const handleHighlightText = useCallback(async () => {
+    if (!selectedText || !selectedTextPageNumber || !renderedSize || !textSpans) {
+      toast.error('텍스트를 선택하고 PDF가 로드될 때까지 기다려주세요.');
+      return;
     }
-  }, [selectedText, selectedTextPageNumber]);
+
+    try {
+      // 선택된 텍스트의 위치 정보 계산
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      
+      // PDF 컨테이너의 위치를 기준으로 상대 좌표 계산
+      const pdfContainer = containerRef.current;
+      if (!pdfContainer) return;
+
+      const containerRect = pdfContainer.getBoundingClientRect();
+      
+      // 스케일과 줌을 고려한 실제 컨테이너 크기
+      const currentPdfScale = pdfScale || 1;
+      const currentPdfZoom = pdfZoom || 1;
+      const totalScale = currentPdfScale * currentPdfZoom;
+      
+      // 컨테이너 내부의 실제 PDF 영역 계산
+      const actualPdfWidth = renderedSize.width * totalScale;
+      const actualPdfHeight = renderedSize.height * totalScale;
+      
+      // 컨테이너 중앙에 위치한 PDF의 실제 시작점 계산
+      const pdfOffsetX = (containerRect.width - actualPdfWidth) / 2;
+      const pdfOffsetY = (containerRect.height - actualPdfHeight) / 2;
+      
+      // 선택된 영역의 상대 좌표 (PDF 영역 기준)
+      const relativeX = rect.left - containerRect.left - pdfOffsetX;
+      const relativeY = rect.top - containerRect.top - pdfOffsetY;
+
+      // 정규화된 좌표로 변환
+      const startX = relativeX / actualPdfWidth;
+      const startY = relativeY / actualPdfHeight;
+      const endX = (relativeX + rect.width) / actualPdfWidth;
+      const endY = (relativeY + rect.height) / actualPdfHeight;
+
+      // 선택된 영역을 하나의 하이라이트로 저장 (정확한 선택 영역만)
+      const highlightData = {
+        text: selectedText, // 사용자가 실제로 선택한 텍스트
+        pageNumber: selectedTextPageNumber,
+        startX: startX,
+        startY: startY,
+        endX: endX,
+        endY: endY,
+        pageWidth: renderedSize.width,
+        pageHeight: renderedSize.height,
+      };
+
+      const savedHighlights: Array<{
+        _id?: string;
+        id?: string;
+        text: string;
+        pageNumber: number;
+        startX: number;
+        startY: number;
+        endX: number;
+        endY: number;
+        pageWidth: number;
+        pageHeight: number;
+        createdAt: string;
+      }> = [];
+
+      try {
+        // DB에 하이라이트 저장
+        const savedHighlight = await saveHighlight(highlightData);
+        if (savedHighlight) {
+          savedHighlights.push(savedHighlight);
+        }
+      } catch (error) {
+        console.error('하이라이트 저장 실패:', error);
+      }
+
+      // 로컬 상태 업데이트
+      setHighlights(prev => [...prev, ...savedHighlights]);
+      
+      // 하이라이트는 별도 레이어에서 처리하므로 텍스트 스팬에 직접 적용하지 않음
+      
+      toast.success(`${savedHighlights.length}개의 텍스트가 하이라이트되었습니다!`);
+      setShowTextActions(false);
+      setSelectedText('');
+      setSelectionPosition(null);
+    } catch (error) {
+      console.error('하이라이트 저장 실패:', error);
+      toast.error('하이라이트 저장에 실패했습니다.');
+    }
+  }, [selectedText, selectedTextPageNumber, renderedSize, saveHighlight]);
 
   // 더 이상 필요하지 않은 함수 제거됨
 
@@ -1036,6 +1360,55 @@ export function PdfDetailPage({
           </div>
         </div>
       )}
+
+      {/* 하이라이트 지우개 팝업 */}
+      {clickedHighlight && (
+        <div
+          className='absolute z-50'
+          style={{
+            left: clickedHighlight.x,
+            top: clickedHighlight.y - 50,
+            transform: 'translate(-50%, 0)',
+          }}
+        >
+          <div
+            className={`flex items-center gap-1 ${
+              isDarkMode ? 'bg-gray-800' : 'bg-white'
+            } rounded-lg shadow-lg border ${
+              isDarkMode ? 'border-gray-600' : 'border-gray-200'
+            } p-1`}
+          >
+            <Button
+              size='sm'
+              variant='ghost'
+              onClick={() => handleDeleteSingleHighlight(clickedHighlight.id)}
+              className={`h-8 px-2 text-xs ${
+                isDarkMode
+                  ? 'hover:bg-gray-700 text-gray-300'
+                  : 'hover:bg-gray-100 text-gray-600'
+              }`}
+              title='하이라이트 삭제'
+            >
+              <Eraser size={14} className='mr-1' />
+              삭제
+            </Button>
+            <Button
+              size='sm'
+              variant='ghost'
+              onClick={() => setClickedHighlight(null)}
+              className={`h-8 px-2 text-xs ${
+                isDarkMode
+                  ? 'hover:bg-gray-700 text-gray-300'
+                  : 'hover:bg-gray-100 text-gray-600'
+              }`}
+              title='취소'
+            >
+              취소
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* 메인 콘텐츠 */}
       <div
         className='flex-1 flex flex-col h-full'
@@ -1218,6 +1591,37 @@ export function PdfDetailPage({
                                 }}
                               />
 
+                              {/* 하이라이트 레이어 - 정확한 선택 영역만 표시 */}
+                              {renderedSize && highlights
+                                .filter(h => h.pageNumber === pageData.pageNumber)
+                                .map((highlight) => {
+                                  const highlightId = highlight._id || highlight.id || '';
+                                  return (
+                                    <div
+                                      key={highlightId}
+                                      className='absolute group cursor-pointer hover:bg-yellow-200 hover:bg-opacity-50 transition-colors duration-200'
+                                      style={{
+                                        left: `${highlight.startX * renderedSize.width}px`,
+                                        top: `${highlight.startY * renderedSize.height}px`,
+                                        width: `${(highlight.endX - highlight.startX) * renderedSize.width}px`,
+                                        height: `${(highlight.endY - highlight.startY) * renderedSize.height}px`,
+                                        zIndex: 15,
+                                      }}
+                                      onClick={(e) => handleHighlightClick(highlightId, e)}
+                                    >
+                                      {/* 하이라이트 배경 - 정확한 선택 영역만 */}
+                                      <div
+                                        className='absolute inset-0'
+                                        style={{
+                                          backgroundColor: 'rgba(255, 255, 0, 0.3)', // 파스텔 노란색, 반투명
+                                          borderRadius: '2px',
+                                        }}
+                                        title={`하이라이트: ${highlight.text} (클릭하여 삭제)`}
+                                      />
+                                    </div>
+                                  );
+                                })}
+
                               {/* 텍스트 레이어 (정규화 좌표를 퍼센트로 매핑) */}
                               {showTextLayer &&
                                 textSpans &&
@@ -1229,6 +1633,11 @@ export function PdfDetailPage({
                                       zIndex: 10,
                                       pointerEvents: 'auto',
                                       userSelect: 'text',
+                                      // 정확한 스케일링과 정렬을 위한 스타일
+                                      transform: 'translateZ(0)', // 하드웨어 가속
+                                      transformOrigin: '0 0', // 변환 기준점
+                                      backfaceVisibility: 'hidden', // 렌더링 최적화
+                                      perspective: '1000px', // 3D 변환 최적화
                                     }}
                                   >
                                     {textSpans
@@ -1239,65 +1648,94 @@ export function PdfDetailPage({
                                           s.pageWidth &&
                                           s.pageHeight
                                       )
-                                      .map((span) => (
-                                        <div
-                                          key={span.id}
-                                          className='absolute pointer-events-auto cursor-text select-text'
-                                          style={{
-                                            left: `${
-                                              (span.x0 /
-                                                (span.pageWidth || 1)) *
-                                              renderedSize.width
-                                            }px`,
-                                            top: `${
-                                              (span.y0 /
-                                                (span.pageHeight || 1)) *
-                                              renderedSize.height
-                                            }px`,
-                                            width: `${
-                                              ((span.x1 - span.x0) /
-                                                (span.pageWidth || 1)) *
-                                              renderedSize.width
-                                            }px`,
-                                            height: `${
-                                              ((span.y1 - span.y0) /
-                                                (span.pageHeight || 1)) *
-                                              renderedSize.height
-                                            }px`,
-                                            color: 'transparent',
-                                            WebkitTextFillColor: 'transparent',
-                                            textShadow: 'none',
-                                            lineHeight: `${
-                                              (span.fontSize /
-                                                (span.pageHeight || 1)) *
-                                              renderedSize.height
-                                            }px`,
-                                            fontSize: `${
-                                              (span.fontSize /
-                                                (span.pageHeight || 1)) *
-                                              renderedSize.height
-                                            }px`,
-                                            fontFamily:
-                                              span.font || 'sans-serif',
-                                            whiteSpace: 'pre',
-                                            overflow: 'visible',
-                                            userSelect: 'text',
-                                            WebkitUserSelect: 'text',
-                                            MozUserSelect: 'text',
-                                          }}
-                                        >
-                                          {span.text}
-                                        </div>
-                                      ))}
-                                    {/* Selection styling for smoother highlight */}
+                                      .map((span) => {
+
+                                        return (
+                                          <div
+                                            key={span.id}
+                                            data-span-id={span.id}
+                                            className='absolute pointer-events-auto cursor-text select-text group'
+                                              style={{
+                                                // 정확한 좌표 계산 (X 좌표 원본 그대로)
+                                                left: `${(span.x0 / (span.pageWidth || 1)) * renderedSize.width}px`,
+                                                // 베이스라인 정렬을 위한 Y 좌표 조정 (처음 상태로 복원)
+                                                top: `${((span.y0 / (span.pageHeight || 1)) * renderedSize.height) + ((span.fontSize / (span.pageHeight || 1)) * renderedSize.height * 0.1)}px`,
+                                                width: `${((span.x1 - span.x0) / (span.pageWidth || 1)) * renderedSize.width}px`,
+                                                // 높이를 약간 늘려서 위아래 여유 공간 확보 (균형잡힌 확장)
+                                                height: `${(((span.y1 - span.y0) / (span.pageHeight || 1)) * renderedSize.height) + ((span.fontSize / (span.pageHeight || 1)) * renderedSize.height * 0.3)}px`,
+                                                
+                                                 // 텍스트 스타일링 (일시적으로 초록색으로 변경하여 텍스트 레이어 확인)
+                                                 color: 'rgba(0, 255, 0, 0.8)', // 초록색으로 변경
+                                                 WebkitTextFillColor: 'rgba(0, 255, 0, 0.8)', // 초록색으로 변경
+                                                 textShadow: 'none',
+                                              
+                                              // 정확한 폰트 크기 계산
+                                              fontSize: `${(span.fontSize / (span.pageHeight || 1)) * renderedSize.height}px`,
+                                              
+                                              // 라인 높이를 폰트 크기와 동일하게 설정 (확장된 영역 내에서 중앙 정렬)
+                                              lineHeight: `${(span.fontSize / (span.pageHeight || 1)) * renderedSize.height}px`,
+                                              
+                                              // 폰트 패밀리 및 기타 속성
+                                              fontFamily: span.font || 'sans-serif',
+                                              
+                                              // 텍스트 정렬 및 레이아웃
+                                              whiteSpace: 'pre',
+                                              overflow: 'visible',
+                                              verticalAlign: 'top', // 상단 정렬로 변경
+                                              textAlign: 'left',
+                                              
+                                              // 사용자 선택 가능
+                                              userSelect: 'text',
+                                              WebkitUserSelect: 'text',
+                                              MozUserSelect: 'text',
+                                              
+                                              // 정확한 위치 지정 및 렌더링 최적화
+                                              position: 'absolute',
+                                              transform: 'translateZ(0)', // 하드웨어 가속
+                                              transformOrigin: '0 0', // 변환 기준점을 좌상단으로 설정
+                                              textRendering: 'geometricPrecision', // 정확한 텍스트 렌더링
+                                              WebkitFontSmoothing: 'antialiased', // 폰트 스무딩
+                                              MozOsxFontSmoothing: 'grayscale', // macOS 폰트 스무딩
+                                              // X 좌표 정확도를 위한 추가 속성
+                                              letterSpacing: '0px', // 자간 고정
+                                              wordSpacing: '0px', // 어간 고정
+                                              textIndent: '0px', // 들여쓰기 제거
+                                            }}
+                                          >
+                                            {span.text}
+                                          </div>
+                                        );
+                                      })}
+                                    {/* 정확한 텍스트 선택을 위한 고급 스타일링 */}
                                     <style>{`
                                             .text-overlay ::selection { 
                                               background: ${'rgba(46, 170, 220, 0.25)'};
                                               color: transparent;
+                                              text-shadow: none !important;
                                             }
                                             .dark .text-overlay ::selection {
                                               background: rgba(99, 179, 237, 0.25);
                                               color: transparent;
+                                              text-shadow: none !important;
+                                            }
+                                            
+                                            /* 텍스트 레이어 정확도 향상을 위한 추가 스타일 */
+                                            .text-overlay {
+                                                font-kerning: none !important;
+                                                font-variant-ligatures: none !important;
+                                                text-rendering: geometricPrecision !important;
+                                                letter-spacing: 0 !important;
+                                                word-spacing: 0 !important;
+                                                text-indent: 0 !important;
+                                            }
+                                            
+                                            .text-overlay * {
+                                                font-kerning: none !important;
+                                                font-variant-ligatures: none !important;
+                                                text-rendering: geometricPrecision !important;
+                                                letter-spacing: 0 !important;
+                                                word-spacing: 0 !important;
+                                                text-indent: 0 !important;
                                             }
                                           `}</style>
                                   </div>

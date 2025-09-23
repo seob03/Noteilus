@@ -19,6 +19,9 @@ const createCommonAuthRoutes = require('./src/routes/commonAuthRoutes');
 const { createPdfRoutes } = require('./src/routes/pdfRoutes');
 // 폴더 라우트
 const { createFolderRoutes } = require('./src/routes/folderRoutes');
+// 하이라이트 라우트
+const { router: highlightRoutes, setHighlightController } = require('./src/routes/highlightRoutes');
+const Highlight = require('./src/models/Highlight');
 
 // CORS 설정
 app.use(cors({
@@ -49,7 +52,7 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 
-connectDB().then((db) => {
+connectDB().then(async (db) => {
 
   // Passport 설정
   configurePassport(db);
@@ -63,6 +66,12 @@ connectDB().then((db) => {
   app.use('/api/pdfs', createPdfRoutes(db));
   // 폴더 라우트 설정
   app.use('/api/folders', createFolderRoutes(db));
+  // 하이라이트 라우트 설정
+  setHighlightController(db);
+  app.use('/api/pdfs', highlightRoutes);
+  
+  // 하이라이트 인덱스 생성
+  await Highlight.createIndexes(db);
 
   app.listen(process.env.PORT || 8080, () => {
     console.log('API 서버 실행 성공');
