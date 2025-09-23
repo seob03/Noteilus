@@ -1665,8 +1665,8 @@ export function PdfDetailPage({
                                                 height: `${(((span.y1 - span.y0) / (span.pageHeight || 1)) * renderedSize.height) + ((span.fontSize / (span.pageHeight || 1)) * renderedSize.height * 0.3)}px`,
                                                 
                                                  // 텍스트 스타일링 (일시적으로 초록색으로 변경하여 텍스트 레이어 확인)
-                                                 color: 'rgba(0, 255, 0, 0.8)', // 초록색으로 변경
-                                                 WebkitTextFillColor: 'rgba(0, 255, 0, 0.8)', // 초록색으로 변경
+                                                 color: 'rgba(255, 255, 255, 0)', // 초록색으로 변경
+                                                 WebkitTextFillColor: 'rgba(255, 255, 255, 0)', // 초록색으로 변경
                                                  textShadow: 'none',
                                               
                                               // 정확한 폰트 크기 계산
