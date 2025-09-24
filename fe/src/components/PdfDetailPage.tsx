@@ -182,7 +182,6 @@ export function PdfDetailPage({
   // 하이라이트 데이터 로드 (DB에서)
   const loadHighlights = useCallback(async () => {
     try {
-      console.log('🔍 하이라이트 로드 시작:', pdfId);
       const response = await fetch(`/api/pdfs/${pdfId}/highlights`, {
         method: 'GET',
         credentials: 'include',
@@ -196,7 +195,6 @@ export function PdfDetailPage({
       }
 
       const highlights = await response.json();
-      console.log('✅ 하이라이트 로드 완료:', highlights);
       
       // DB에서 받은 하이라이트를 로컬 상태에 설정
       setHighlights(highlights);
@@ -223,9 +221,6 @@ export function PdfDetailPage({
     pageHeight: number;
   }) => {
     try {
-      console.log('💾 하이라이트 저장 시작:', highlightData);
-      console.log('📡 요청 URL:', `/api/pdfs/${pdfId}/highlights`);
-      console.log('📡 PDF ID:', pdfId);
       
       const response = await fetch(`/api/pdfs/${pdfId}/highlights`, {
         method: 'POST',
@@ -236,8 +231,6 @@ export function PdfDetailPage({
         body: JSON.stringify(highlightData),
       });
 
-      console.log('📡 응답 상태:', response.status);
-      console.log('📡 응답 헤더:', response.headers);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -246,7 +239,6 @@ export function PdfDetailPage({
       }
 
       const savedHighlight = await response.json();
-      console.log('✅ 하이라이트 저장 완료:', savedHighlight);
       return savedHighlight;
     } catch (error) {
       console.error('❌ 하이라이트 저장 실패:', error);
@@ -254,10 +246,81 @@ export function PdfDetailPage({
     }
   }, [pdfId]);
 
+  // 노트 데이터 로드
+  const loadNotes = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/pdfs/${pdfId}/notes`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+      setNotes(data);
+      return data;
+    } catch (err) {
+      console.error('노트 로드 실패:', err);
+      setNotes([]);
+      return [];
+    }
+  }, [pdfId]);
+
+  // 노트 생성
+  const createNote = useCallback(async (noteData: {
+    text: string;
+    pageNumber: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    pageWidth: number;
+    pageHeight: number;
+    fontSize?: number;
+    color?: string;
+    bold?: boolean;
+  }) => {
+    const response = await fetch(`/api/pdfs/${pdfId}/notes`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(noteData),
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const saved = await response.json();
+    setNotes(prev => [...prev, saved]);
+    return saved;
+  }, [pdfId]);
+
+  // 노트 업데이트 (이동/리사이즈/텍스트)
+  const updateNote = useCallback(async (noteId: string, updates: Partial<{ text: string; x: number; y: number; width: number; height: number }>) => {
+    // allow font updates, too
+    const body = updates as any;
+    const response = await fetch(`/api/pdfs/notes/${noteId}`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const updated = await response.json();
+    setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? updated : n));
+    return updated;
+  }, []);
+
+  // 노트 삭제
+  const deleteNote = useCallback(async (noteId: string) => {
+    const response = await fetch(`/api/pdfs/notes/${noteId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    setNotes(prev => prev.filter(n => (n._id || n.id) !== noteId));
+  }, []);
+
   // 하이라이트 삭제 (DB에서)
   const deleteHighlight = useCallback(async (highlightId: string) => {
     try {
-      console.log('🗑️ 하이라이트 삭제 시작:', highlightId);
       
       // 삭제할 하이라이트를 미리 저장
       let deletedHighlight: any = null;
@@ -285,7 +348,6 @@ export function PdfDetailPage({
       }
       
       toast.success('하이라이트가 삭제되었습니다.');
-      console.log('✅ 하이라이트 삭제 완료');
     } catch (error) {
       console.error('❌ 하이라이트 삭제 실패:', error);
       toast.error('하이라이트 삭제에 실패했습니다.');
@@ -341,6 +403,85 @@ export function PdfDetailPage({
     createdAt: string;
   }>>([]);
   const [isHighlighting, setIsHighlighting] = useState<boolean>(false);
+
+  // 노트(주석) 관련 상태
+  const [notes, setNotes] = useState<Array<{
+    _id?: string;
+    id?: string;
+    text: string;
+    pageNumber: number;
+    x: number; // 0..1
+    y: number; // 0..1
+    width: number; // 0..1
+    height: number; // 0..1
+    pageWidth?: number;
+    pageHeight?: number;
+    fontSize?: number;
+    color?: string;
+    bold?: boolean;
+    createdAt?: string;
+  }>>([]);
+  const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null);
+  const [resizingNoteId, setResizingNoteId] = useState<string | null>(null);
+  const dragStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
+  const resizeStartRef = useRef<{ mouseX: number; mouseY: number; startWidth: number; startHeight: number } | null>(null);
+
+  // 전역 마우스 이동/업 핸들러 (노트 이동/리사이즈)
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      if (!renderedSize) return;
+      if (draggingNoteId && dragStartRef.current) {
+        const dx = (e.clientX - dragStartRef.current.mouseX) / renderedSize.width;
+        const dy = (e.clientY - dragStartRef.current.mouseY) / renderedSize.height;
+        setNotes(prev => prev.map(n => {
+          const id = n._id || n.id;
+          if (id !== draggingNoteId) return n;
+          const nx = Math.max(0, Math.min(1 - n.width, dragStartRef.current!.startX + dx));
+          const ny = Math.max(0, Math.min(1 - n.height, dragStartRef.current!.startY + dy));
+          return { ...n, x: nx, y: ny };
+        }));
+      }
+      if (resizingNoteId && resizeStartRef.current) {
+        const dw = (e.clientX - resizeStartRef.current.mouseX) / renderedSize.width;
+        const dh = (e.clientY - resizeStartRef.current.mouseY) / renderedSize.height;
+        setNotes(prev => prev.map(n => {
+          const id = n._id || n.id;
+          if (id !== resizingNoteId) return n;
+          const nw = Math.max(0.08, Math.min(1 - n.x, resizeStartRef.current!.startWidth + dw));
+          const nh = Math.max(0.04, Math.min(1 - n.y, resizeStartRef.current!.startHeight + dh));
+          return { ...n, width: nw, height: nh };
+        }));
+      }
+    };
+
+    const handleUp = async () => {
+      if (draggingNoteId) {
+        const note = notes.find(n => (n._id || n.id) === draggingNoteId);
+        const id = draggingNoteId;
+        setDraggingNoteId(null);
+        dragStartRef.current = null;
+        if (note) {
+          try { await updateNote(id, { x: note.x, y: note.y }); } catch (err) { console.error(err); }
+        }
+      }
+      if (resizingNoteId) {
+        const note = notes.find(n => (n._id || n.id) === resizingNoteId);
+        const id = resizingNoteId;
+        setResizingNoteId(null);
+        resizeStartRef.current = null;
+        if (note) {
+          try { await updateNote(id, { width: note.width, height: note.height }); } catch (err) { console.error(err); }
+        }
+      }
+    };
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+  }, [renderedSize, draggingNoteId, resizingNoteId, notes, updateNote]);
 
   // questionContext로 통합되어 제거됨
 
@@ -484,7 +625,8 @@ export function PdfDetailPage({
   useEffect(() => {
     loadPdf();
     loadHighlights();
-  }, [pdfId, loadHighlights]);
+    loadNotes();
+  }, [pdfId, loadHighlights, loadNotes]);
 
   // 채팅 자동 스크롤을 위한 ref
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
@@ -625,7 +767,6 @@ export function PdfDetailPage({
         }
 
         // 스트림 응답 처리
-        console.log('🌐 프론트엔드 스트리밍 시작');
         const reader = response.body?.getReader();
         if (!reader) {
           throw new Error('스트림을 읽을 수 없습니다.');
@@ -649,22 +790,11 @@ export function PdfDetailPage({
             const { done, value } = await reader.read();
 
             if (done) {
-              console.log(
-                '✅ 프론트엔드 스트리밍 완료 - 총 청크:',
-                chunkCount,
-                '전체 길이:',
-                fullResponse.length
-              );
               break;
             }
 
             chunkCount++;
             const chunk = decoder.decode(value, { stream: true });
-            console.log(
-              `📥 프론트엔드 청크 #${chunkCount} 수신:`,
-              chunk.length,
-              'bytes'
-            );
 
             const lines = chunk.split('\n');
 
@@ -673,7 +803,6 @@ export function PdfDetailPage({
                 const data = line.slice(6).trim();
 
                 if (data === '[DONE]') {
-                  console.log('🏁 프론트엔드 완료 신호 수신');
                   // 완료 신호 수신 시에는 더 이상 업데이트하지 않음
                   break;
                 }
@@ -688,13 +817,6 @@ export function PdfDetailPage({
 
                   if (content) {
                     fullResponse += content;
-                    console.log(
-                      '💬 프론트엔드 텍스트 업데이트:',
-                      content,
-                      '| 누적:',
-                      fullResponse.length,
-                      '자'
-                    );
 
                     // 즉시 UI 업데이트 (배칭 방지)
                     updateDisplayText(fullResponse);
@@ -704,12 +826,6 @@ export function PdfDetailPage({
                   }
                 } catch (parseError) {
                   // JSON 파싱 에러는 무시하고 계속 진행
-                  console.log(
-                    '❌ 프론트엔드 JSON 파싱 에러:',
-                    parseError.message,
-                    'Data:',
-                    data
-                  );
                   continue;
                 }
               }
@@ -717,7 +833,6 @@ export function PdfDetailPage({
           }
         } finally {
           reader.releaseLock();
-          console.log('🔚 프론트엔드 스트리밍 연결 종료');
         }
 
         // 채팅 완료 후 DB에서 최신 히스토리 다시 로드
@@ -820,7 +935,6 @@ export function PdfDetailPage({
 
   // 하이라이트 클릭 핸들러
   const handleHighlightClick = useCallback((highlightId: string, event: React.MouseEvent) => {
-    console.log('🎯 하이라이트 클릭됨:', highlightId);
     event.stopPropagation();
     setClickedHighlight({
       id: highlightId,
@@ -1076,7 +1190,6 @@ export function PdfDetailPage({
     );
 
     if (newPagesToLoad.length > 0) {
-      console.log('미리 로드할 페이지들:', newPagesToLoad);
       // 실제로는 이미지 preload는 브라우저가 자동으로 처리하므로
       // 여기서는 로드된 페이지 목록만 업데이트
       setLoadedPages((prev) => new Set([...prev, ...newPagesToLoad]));
@@ -1463,6 +1576,40 @@ export function PdfDetailPage({
             >
               <Map size={20} />
             </Button>
+
+            {/* 메모 추가 버튼 - 맵 버튼 옆 */}
+            <Button
+              variant='ghost'
+              size='sm'
+              onClick={async () => {
+                if (!renderedSize || !pdfDimensions) return;
+                const defaultWidth = 0.2;
+                const defaultHeight = 0.12;
+                const newNote = {
+                  text: '',
+                  pageNumber: currentPage,
+                  x: 0.1,
+                  y: 0.1,
+                  width: defaultWidth,
+                  height: defaultHeight,
+                  pageWidth: pdfDimensions.width,
+                  pageHeight: pdfDimensions.height,
+                };
+                try {
+                  await createNote(newNote);
+                } catch (err) {
+                  console.error('노트 생성 실패:', err);
+                  toast.error('노트 생성에 실패했습니다.');
+                }
+              }}
+              className={`${
+                isDarkMode
+                  ? 'text-white hover:bg-gray-700'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              메모
+            </Button>
           </div>
         </div>
 
@@ -1618,6 +1765,143 @@ export function PdfDetailPage({
                                         }}
                                         title={`하이라이트: ${highlight.text} (클릭하여 삭제)`}
                                       />
+                                    </div>
+                                  );
+                                })}
+
+                              {/* 노트 레이어 */}
+                              {renderedSize && notes
+                                .filter(n => n.pageNumber === pageData.pageNumber)
+                                .map((note) => {
+                                  const noteId = note._id || note.id || '';
+                                  const left = note.x * renderedSize.width;
+                                  const top = note.y * renderedSize.height;
+                                  const width = note.width * renderedSize.width;
+                                  const height = note.height * renderedSize.height;
+                                  return (
+                                    <div
+                                      key={noteId}
+                                      className='absolute'
+                                      style={{
+                                        left: `${left}px`,
+                                        top: `${top}px`,
+                                        width: `${width}px`,
+                                        height: `${height}px`,
+                                        zIndex: 20,
+                                      }}
+                                    >
+                                      <div
+                                        className='group relative w-full h-full rounded-md shadow-md border border-yellow-300/60 bg-yellow-50/90 backdrop-blur-sm overflow-hidden'
+                                      >
+                                        {/* 드래그 헤더 핸들 */}
+                                        <div
+                                          className='absolute top-0 left-0 right-0 h-7 bg-yellow-200/80 border-b border-yellow-300/70 flex items-center px-2 select-none'
+                                          onMouseDown={(e) => {
+                                            if ((e.target as HTMLElement).closest('[data-role="toolbar"]')) return; // toolbar 클릭시 드래그 금지
+                                            setDraggingNoteId(noteId);
+                                            dragStartRef.current = {
+                                              mouseX: e.clientX,
+                                              mouseY: e.clientY,
+                                              startX: note.x,
+                                              startY: note.y,
+                                            };
+                                            e.stopPropagation();
+                                            e.preventDefault();
+                                          }}
+                                          title='드래그하여 이동'
+                                        >
+                                          <button
+                                            className='mr-2 text-black/80 hover:text-black font-medium leading-none'
+                                            title='노트 삭제'
+                                            onClick={(e) => { e.stopPropagation(); deleteNote(noteId).catch(console.error); }}
+                                          >
+                                            ×
+                                          </button>
+                                          <div className='w-8 h-1 rounded bg-yellow-400/90 mr-2 cursor-move' />
+                                          {/* 서식 툴바 */}
+                                          <div data-role='toolbar' className='ml-auto flex items-center gap-2'>
+                                            <select
+                                              className='text-xs bg-transparent border border-yellow-300/70 rounded px-1 py-0.5'
+                                              value={note.fontSize ?? 14}
+                                              size={5}
+                                              onChange={async (e) => {
+                                                const size = parseInt(e.target.value, 10);
+                                                setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, fontSize: size } : n));
+                                                try { await updateNote(noteId, { fontSize: size } as any); } catch {}
+                                              }}
+                                            >
+                                              {[8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40, 44, 48].map(s => (
+                                                <option key={s} value={s}>{s}px</option>
+                                              ))}
+                                            </select>
+                                            <button
+                                              className={`text-xs px-2 py-0.5 rounded border ${note.bold ? 'bg-yellow-400/70 border-yellow-500' : 'border-yellow-300/70 hover:bg-yellow-100/60'}`}
+                                              onClick={async (e) => {
+                                                e.stopPropagation();
+                                                const next = !note.bold;
+                                                setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, bold: next } : n));
+                                                try { await updateNote(noteId, { bold: next } as any); } catch {}
+                                              }}
+                                              title='굵게'
+                                            >
+                                              B
+                                            </button>
+                                            <input
+                                              type='color'
+                                              value={note.color ?? '#111827'}
+                                              onChange={async (e) => {
+                                                const color = e.target.value;
+                                                setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, color } : n));
+                                                try { await updateNote(noteId, { color } as any); } catch {}
+                                              }}
+                                              title='텍스트 색'
+                                              style={{ width: 28, height: 18, padding: 0, border: '1px solid rgba(253, 230, 138, 0.7)', borderRadius: 4, background: 'transparent' }}
+                                            />
+                                          </div>
+                                        </div>
+
+                                        <textarea
+                                          className='absolute left-0 right-0 bottom-0 bg-transparent p-2 pt-4 outline-none resize-none'
+                                          style={{ top: '1.75rem', fontSize: `${note.fontSize ?? 14}px`, fontWeight: note.bold ? 700 : 400, color: note.color ?? '#111827' }}
+                                          value={note.text}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, text: val } : n));
+                                          }}
+                                          onMouseDown={(e) => { e.stopPropagation(); }}
+                                          onClick={(e) => { e.stopPropagation(); }}
+                                          onFocus={(e) => { setDraggingNoteId(null); setResizingNoteId(null); }}
+                                          onBlur={async (e) => {
+                                            const val = e.target.value;
+                                            try { await updateNote(noteId, { text: val }); } catch (err) { console.error(err); }
+                                          }}
+                                        />
+                                        {/* 리사이즈 핸들 (우하단) */}
+                                        <div
+                                          data-handle='resize'
+                                          className='absolute right-0 bottom-0 w-5 h-5 cursor-se-resize'
+                                          style={{ zIndex: 2 }}
+                                          onMouseDown={(e) => {
+                                            setResizingNoteId(noteId);
+                                            resizeStartRef.current = {
+                                              mouseX: e.clientX,
+                                              mouseY: e.clientY,
+                                              startWidth: note.width,
+                                              startHeight: note.height,
+                                            };
+                                            e.stopPropagation();
+                                            e.preventDefault();
+                                          }}
+                                          title='드래그하여 크기 조절'
+                                        >
+                                          <div className='absolute inset-0 pointer-events-none'>
+                                            <svg width='100%' height='100%'>
+                                              <line x1='30%' y1='70%' x2='90%' y2='10%' stroke='#f59e0b' strokeWidth='2' />
+                                              <line x1='10%' y1='90%' x2='70%' y2='30%' stroke='#f59e0b' strokeWidth='2' />
+                                            </svg>
+                                          </div>
+                                        </div>
+                                      </div>
                                     </div>
                                   );
                                 })}
@@ -1968,6 +2252,8 @@ export function PdfDetailPage({
           </Button>
         </div>
       )}
+
+      
 
       {/* AI 튜터 사이드바 - 오른쪽 */}
       <div

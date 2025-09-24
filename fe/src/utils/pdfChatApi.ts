@@ -96,7 +96,6 @@ const handleQuestion = async (pdfId: string, selectedText: string, question: str
       }
     },
     () => {
-      console.log('답변 완료');
     },
     (error) => {
       console.error('에러:', error);

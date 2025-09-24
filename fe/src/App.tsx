@@ -21,7 +21,6 @@ export default function App() {
   // PDF.js 워커 설정 - 앱 시작 시 한 번만 설정
   useEffect(() => {
     pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-    console.log('PDF 워커 설정 완료:', pdfjs.GlobalWorkerOptions.workerSrc);
   }, []);
 
   const [currentPage, setCurrentPage] = useState<Page>("main");
@@ -37,18 +36,13 @@ export default function App() {
   useEffect(() => {
     const checkAuthStatus = async () => {
       try {
-        console.log('로그인 상태 확인 시작...');
         const response = await fetch('/auth/me', {
           credentials: 'include'
         });
         
-        console.log('로그인 상태 확인 응답:', response.status, response.statusText);
         
         if (response.ok) {
           const data = await response.json();
-          console.log('로그인 상태 확인 성공:', data);
-          console.log('구글아이디: ',data.user.googleId);
-          console.log('카카오아이디: ',data.user.kakaoId);
           setIsLoggedIn(true);
           setUserEmail(data.user.email);
           setUserName(data.user.name);
@@ -61,9 +55,7 @@ export default function App() {
             setUserProvider(null);
           }
           setUserId(data.user.id);
-          console.log('로그인 상태 확인됨:', data.user);
         } else {
-          console.log('로그인되지 않음 - 응답:', response.status);
           setIsLoggedIn(false);
         }
       } catch (error) {
@@ -106,7 +98,6 @@ export default function App() {
       });
 
       if (response.ok) {
-        console.log('로그아웃 성공');
         // 로컬 상태 업데이트
         setIsLoggedIn(false);
         setUserEmail(null);

@@ -322,13 +322,11 @@ const DraggableCard = React.forwardRef<HTMLDivElement, {
             : `bg-[#d9d9d9] hover:bg-[#c9c9c9] overflow-hidden ${isReorderTarget ? 'ring-2 ring-green-400 ring-opacity-70' : ''}`
         }`}
         onClick={(e) => {
-          console.log('DraggableCard 클릭됨', { docId: doc.id, selectionMode, docType: doc.type });
           if (selectionMode && doc.id !== 'add') {
             onToggleSelection(doc.id);
           } else if (doc.type === 'folder') {
             onFolderClick(doc);
           } else if (doc.id === 'add') {
-            console.log('+ 버튼 클릭됨, handleAddClick 호출');
             e.stopPropagation(); // 이벤트 전파 방지
             handleAddClick();
           } else if (doc.type === 'pdf') {
@@ -438,7 +436,7 @@ const DraggableCard = React.forwardRef<HTMLDivElement, {
               src={doc.previewImage} 
               alt={doc.name} 
               className="w-full h-full object-cover rounded shadow-sm" 
-              onLoad={() => console.log('썸네일 로드 성공:', doc.previewImage)}
+              onLoad={() => {}}
               onError={(e) => {
                 console.error('썸네일 로드 실패:', doc.previewImage);
                 e.currentTarget.style.display = 'none';
@@ -549,8 +547,6 @@ DraggableCard.displayName = 'DraggableCard';
 
 export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPicture, userId, onSettingsClick, onLoginClick, onPdfClick }: MainPageProps) {
   // 로그인 상태 디버깅
-  console.log('MainPage - isLoggedIn:', isLoggedIn);
-  console.log('MainPage - userEmail:', userEmail);
   
   // 드래그&드롭 상태
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -711,12 +707,6 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
         const pdfs = await pdfResponse.json();
         // PDF 데이터를 Document 형태로 변환
         const pdfDocuments: Document[] = pdfs.map((pdf: any) => {
-          console.log('PDF 데이터 변환:', {
-            id: pdf._id || pdf.id,
-            name: pdf.originalName || pdf.name,
-            previewImage: pdf.previewImage,
-            thumbnailUrl: pdf.thumbnailUrl
-          });
           return {
             id: pdf._id || pdf.id,
             name: pdf.originalName || pdf.name,
@@ -788,13 +778,6 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
         ...pdfsWithoutFolders
       ];
 
-      console.log('로드된 문서 구조:', {
-        totalPdfs: documents.filter(doc => doc.type === 'pdf').length,
-        pdfsWithFolders: pdfsWithFolders.length,
-        pdfsWithoutFolders: pdfsWithoutFolders.length,
-        folders: documents.filter(doc => doc.type === 'folder').length,
-        finalDocuments: finalDocuments.length
-      });
 
       // "추가" 버튼을 가장 앞에 고정
       setDocuments([{
@@ -1258,13 +1241,11 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
   };
 
   const handleSort = (sortType: string) => {
-    console.log('정렬:', sortType);
   };
 
   const getCurrentDocuments = () => {
     if (currentFolder) {
       const folder = documents.find(doc => doc.id === currentFolder);
-      console.log('현재 폴더:', currentFolder, '폴더 정보:', folder);
       return folder?.children || [];
     }
     return documents;
@@ -1355,11 +1336,6 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
   // PDF 파일 업로드 함수
   const uploadPdfFile = async (file: File) => {
     try {
-      console.log('PDF 업로드 시작:', {
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type
-      });
 
       const formData = new FormData();
       formData.append('pdf', file);
@@ -1374,11 +1350,6 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
         credentials: 'include'
       });
 
-      console.log('PDF 업로드 응답:', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-      });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -1388,7 +1359,6 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
       }
 
       const result = await response.json();
-      console.log('PDF 업로드 성공:', result);
       
              // 문서 목록 새로고침
        await loadDocuments();
@@ -1430,11 +1400,9 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
   };
 
   const handleAddClick = () => {
-    console.log('handleAddClick 호출됨', { isLoggedIn, showAddMenu });
     if (!isLoggedIn) {
       setShowLoginModal(true);
     } else {
-      console.log('showAddMenu 상태 변경:', !showAddMenu);
       setShowAddMenu(!showAddMenu);
     }
   };
@@ -1903,7 +1871,6 @@ export function MainPage({ isDarkMode, isLoggedIn, userEmail, userName, userPict
                 onToggleSelection={toggleDocumentSelection}
                 onPdfClick={onPdfClick}
                 onFolderClick={(folder) => {
-                  console.log('폴더 클릭됨:', folder);
                   setCurrentFolder(folder.id);
                 }}
                 onMainDrop={handleMainDrop}

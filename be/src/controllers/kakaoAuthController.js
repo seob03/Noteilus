@@ -14,10 +14,7 @@ class KakaoAuthController {
         name: profile.displayName,
         picture: profile._json.properties?.profile_image || null
       };
-
-      console.log('저장할 사용자 데이터:', userData);
-      const user = await this.userModel.updateOrCreate(userData);
-      console.log('저장된 사용자:', user);
+      const user = await this.userModel.updateOrCreate(userData);ㅁ
       return user;
     } catch (error) {
       console.error('Kakao login error:', error);
@@ -71,9 +68,6 @@ class KakaoAuthController {
   // 로그인 콜백 처리
   async loginCallback(req, res) {
     console.log('카카오 로그인 콜백 시작');
-    console.log('req.user:', req.user);
-    console.log('req.isAuthenticated():', req.isAuthenticated());
-    console.log('FRONTEND_URL:', process.env.FRONTEND_URL);
     
     if (!req.isAuthenticated()) {
       console.error('카카오 로그인 실패: 인증되지 않음');

@@ -10,12 +10,6 @@ class HighlightController {
   async createHighlight(req, res) {
     try {
       console.log('🔍 하이라이트 생성 요청 받음');
-      console.log('📥 요청 데이터:', req.body);
-      console.log('📥 PDF ID:', req.params.pdfId);
-      console.log('👤 사용자 정보 전체:', req.user);
-      console.log('👤 사용자 ID (googleId):', req.user?.googleId);
-      console.log('👤 사용자 ID (kakaoId):', req.user?.kakaoId);
-      console.log('👤 사용자 ID (id):', req.user?.id);
       
       const { text, pageNumber, startX, startY, endX, endY, pageWidth, pageHeight } = req.body;
       const pdfId = req.params.pdfId;
@@ -28,19 +22,13 @@ class HighlightController {
 
       // PDF 문서 존재 확인
       console.log('🔍 PDF 문서 확인 중...');
-      console.log('🔍 PDF ID (ObjectId 변환 전):', pdfId);
-      console.log('🔍 PDF ID (ObjectId 변환 후):', new ObjectId(pdfId));
-      
-      // 먼저 모든 PDF 문서 목록 확인
-      const allPdfs = await this.db.collection('pdfs').find({}).toArray();
-      console.log('📚 모든 PDF 문서 목록:', allPdfs.map(pdf => ({ id: pdf._id.toString(), name: pdf.fileName })));
       
       const pdfDoc = await this.db.collection('pdfs').findOne({ _id: new ObjectId(pdfId) });
       if (!pdfDoc) {
         console.error('❌ PDF 문서를 찾을 수 없습니다:', pdfId);
         return res.status(404).json({ error: 'PDF 문서를 찾을 수 없습니다.' });
       }
-      console.log('✅ PDF 문서 확인 완료:', pdfDoc.name);
+      console.log('✅ PDF 문서 확인 완료');
 
       // 하이라이트 데이터 생성
       const highlightData = {
@@ -58,7 +46,7 @@ class HighlightController {
 
       console.log('💾 하이라이트 데이터 생성 중...');
       const savedHighlight = await Highlight.create(this.db, highlightData);
-      console.log('✅ 하이라이트 저장 완료:', savedHighlight);
+      console.log('✅ 하이라이트 저장 완료');
       
       res.status(201).json(savedHighlight);
     } catch (error) {

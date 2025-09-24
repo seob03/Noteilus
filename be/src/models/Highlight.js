@@ -21,16 +21,13 @@ class Highlight {
   static async create(db, data) {
     try {
       console.log('🔍 Highlight.create 호출됨');
-      console.log('📥 입력 데이터:', data);
       
       const highlight = new Highlight(data);
-      console.log('📝 생성된 하이라이트 객체:', highlight);
       
       const result = await db.collection('highlights').insertOne(highlight);
-      console.log('💾 DB 삽입 결과:', result);
       
       const savedHighlight = { ...highlight, _id: result.insertedId };
-      console.log('✅ 최종 저장된 하이라이트:', savedHighlight);
+      console.log('✅ 최종 저장된 하이라이트');
       
       return savedHighlight;
     } catch (error) {

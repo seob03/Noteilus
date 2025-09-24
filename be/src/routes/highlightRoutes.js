@@ -14,24 +14,19 @@ const setHighlightController = (db) => {
 // 인증 미들웨어
 const requireAuth = (req, res, next) => {
   console.log('🔐 인증 미들웨어 실행');
-  console.log('📥 요청 헤더:', req.headers);
-  console.log('🍪 쿠키:', req.headers.cookie);
   
   if (!req.user) {
     console.error('❌ 사용자 정보 없음');
     return res.status(401).json({ error: '로그인이 필요합니다.' });
   }
   
-  console.log('✅ 인증 성공:', req.user.id);
+  console.log('✅ 인증 성공');
   next();
 };
 
 // 하이라이트 생성
 router.post('/:pdfId/highlights', requireAuth, async (req, res) => {
   console.log('🚀 하이라이트 생성 라우트 도달');
-  console.log('📥 요청 파라미터:', req.params);
-  console.log('📥 요청 바디:', req.body);
-  console.log('👤 사용자 정보:', req.user);
   
   if (!highlightController) {
     console.error('❌ highlightController가 초기화되지 않음');

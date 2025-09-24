@@ -219,18 +219,18 @@ class PdfController {
   // PDF의 모든 페이지를 SVG로 변환하는 함수
   async generateAllPagesSvg(pdfBuffer, userId) {
     try {
-      console.log('전체 페이지 SVG 생성 함수 시작, userId:', userId);
+      console.log('전체 페이지 SVG 생성 함수 시작');
       
       // PDF 해시 생성 (캐싱용)
       const crypto = require('crypto');
       const pdfHash = crypto.createHash('md5').update(pdfBuffer).digest('hex');
-      console.log('PDF 해시:', pdfHash);
+      console.log('PDF 해시 생성');
       
       // 기존 SVG 캐시 확인 (같은 PDF가 이미 처리되었는지)
       const existingPdf = await this.pdfDocument.findByPdfHash(userId, pdfHash);
       
       if (existingPdf && existingPdf.allPagesSvg && existingPdf.allPagesSvg.length > 0) {
-        console.log('기존 SVG 캐시 발견, 재사용:', existingPdf.allPagesSvg.length, '페이지');
+        console.log('기존 SVG 캐시 발견, 재사용');
         return existingPdf.allPagesSvg;
       }
       
@@ -253,13 +253,13 @@ class PdfController {
       // 병렬 처리를 위한 배치 크기 설정 (CPU 코어 수에 맞게 동적 조정)
       const CPU_CORES = os.cpus().length;
       const BATCH_SIZE = Math.max(2, Math.min(CPU_CORES, 8)); // 최소 2, 최대 8
-      console.log(`CPU 코어 수: ${CPU_CORES}, 배치 크기: ${BATCH_SIZE}`);
+      console.log('CPU 코어 수와 배치 크기 설정');
       const svgUrls = [];
 
       // 페이지를 배치로 나누어 병렬 처리
       for (let batchStart = 1; batchStart <= totalPages; batchStart += BATCH_SIZE) {
         const batchEnd = Math.min(batchStart + BATCH_SIZE - 1, totalPages);
-        console.log(`배치 처리: 페이지 ${batchStart}-${batchEnd}/${totalPages}`);
+        console.log('배치 처리 진행');
         
         // 현재 배치의 페이지들을 병렬로 처리
         const batchPromises = [];
@@ -374,7 +374,7 @@ class PdfController {
           ]);
 
           const endTime = Date.now();
-          console.log(`병렬 처리 완료 - 소요시간: ${endTime - startTime}ms`);
+          console.log('병렬 처리 완료');
 
           // 결과 추출
           const ocrText = ocrResult.status === 'fulfilled' ? ocrResult.value : '';
@@ -453,7 +453,7 @@ class PdfController {
             responseData.textSpans = textSpans;
           }
 
-          console.log(`PDF 업로드 완료 - ID: ${pdfId}, 처리시간: ${endTime - startTime}ms`);
+          console.log('PDF 업로드 완료');
           res.status(201).json(responseData);
 
         } catch (error) {
@@ -849,13 +849,13 @@ class PdfController {
           const { done, value } = await reader.read();
           
           if (done) {
-            console.log('✅ 스트리밍 완료 - 총 청크 수:', chunkCount, '전체 응답 길이:', fullResponse.length);
+            console.log('✅ 스트리밍 완료');
             break;
           }
 
           chunkCount++;
           const chunk = decoder.decode(value, { stream: true });
-          console.log(`📦 청크 #${chunkCount} 수신:`, chunk.length, 'bytes');
+          console.log('📦 청크 수신');
           
           const lines = chunk.split('\n');
 
@@ -884,7 +884,7 @@ class PdfController {
                 
                 if (content) {
                   fullResponse += content;
-                  console.log('텍스트 청크 전송:', content);
+                  console.log('텍스트 청크 전송');
                   // SSE 형식으로 전송
                   res.write(`data: ${JSON.stringify({ content })}\n\n`);
                   // 즉시 전송 보장
@@ -894,7 +894,7 @@ class PdfController {
                 }
               } catch (parseError) {
                 // JSON 파싱 에러는 무시하고 계속 진행
-                console.log(' JSON 파싱 에러:', parseError.message, 'Data:', data);
+                console.log('JSON 파싱 에러');
                 continue;
               }
             }

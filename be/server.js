@@ -22,6 +22,9 @@ const { createFolderRoutes } = require('./src/routes/folderRoutes');
 // 하이라이트 라우트
 const { router: highlightRoutes, setHighlightController } = require('./src/routes/highlightRoutes');
 const Highlight = require('./src/models/Highlight');
+// 노트 라우트
+const { router: noteRoutes, setNoteController } = require('./src/routes/noteRoutes');
+const Note = require('./src/models/Note');
 
 // CORS 설정
 app.use(cors({
@@ -69,9 +72,14 @@ connectDB().then(async (db) => {
   // 하이라이트 라우트 설정
   setHighlightController(db);
   app.use('/api/pdfs', highlightRoutes);
+  // 노트 라우트 설정
+  setNoteController(db);
+  app.use('/api/pdfs', noteRoutes);
   
   // 하이라이트 인덱스 생성
   await Highlight.createIndexes(db);
+  // 노트 인덱스 생성
+  await Note.createIndexes(db);
 
   app.listen(process.env.PORT || 8080, () => {
     console.log('API 서버 실행 성공');
