@@ -419,12 +419,20 @@ export function PdfDetailPage({
     fontSize?: number;
     color?: string;
     bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    minimized?: boolean;
     createdAt?: string;
   }>>([]);
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null);
   const [resizingNoteId, setResizingNoteId] = useState<string | null>(null);
   const dragStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
   const resizeStartRef = useRef<{ mouseX: number; mouseY: number; startWidth: number; startHeight: number } | null>(null);
+  const fontSizeUpdateTimersRef = useRef<Record<string, any>>({});
+  const [noteFontInputs, setNoteFontInputs] = useState<Record<string, string>>({});
+  const dragJustHappenedRef = useRef<boolean>(false);
+  const [previewNoteId, setPreviewNoteId] = useState<string | null>(null);
+  const previewTimersRef = useRef<Record<string, any>>({});
 
   // 전역 마우스 이동/업 핸들러 (노트 이동/리사이즈)
   useEffect(() => {
@@ -433,6 +441,13 @@ export function PdfDetailPage({
       if (draggingNoteId && dragStartRef.current) {
         const dx = (e.clientX - dragStartRef.current.mouseX) / renderedSize.width;
         const dy = (e.clientY - dragStartRef.current.mouseY) / renderedSize.height;
+        // 드래그 이동이 일정 임계값을 넘으면 클릭 억제 플래그 설정
+        if (
+          Math.abs(e.clientX - dragStartRef.current.mouseX) > 2 ||
+          Math.abs(e.clientY - dragStartRef.current.mouseY) > 2
+        ) {
+          dragJustHappenedRef.current = true;
+        }
         setNotes(prev => prev.map(n => {
           const id = n._id || n.id;
           if (id !== draggingNoteId) return n;
@@ -463,6 +478,8 @@ export function PdfDetailPage({
         if (note) {
           try { await updateNote(id, { x: note.x, y: note.y }); } catch (err) { console.error(err); }
         }
+        // 드래그 종료 직후 클릭 발생 시 열림 방지 위해 잠깐 유지 후 해제
+        setTimeout(() => { dragJustHappenedRef.current = false; }, 0);
       }
       if (resizingNoteId) {
         const note = notes.find(n => (n._id || n.id) === resizingNoteId);
@@ -1790,6 +1807,69 @@ export function PdfDetailPage({
                                         zIndex: 20,
                                       }}
                                     >
+                                      {note.minimized ? (
+                                        <>
+                                          <button
+                                            className='px-2 py-1 text-xs rounded-md border border-yellow-300/60 bg-yellow-50/90 text-gray-800 hover:bg-yellow-100 shadow cursor-move'
+                                            onMouseEnter={() => {
+                                              const key = String(noteId);
+                                              if (previewTimersRef.current[key]) clearTimeout(previewTimersRef.current[key]);
+                                              previewTimersRef.current[key] = setTimeout(() => {
+                                                setPreviewNoteId(noteId);
+                                              }, 500);
+                                            }}
+                                            onMouseLeave={() => {
+                                              const key = String(noteId);
+                                              if (previewTimersRef.current[key]) clearTimeout(previewTimersRef.current[key]);
+                                              setPreviewNoteId((curr) => (curr === noteId ? null : curr));
+                                            }}
+                                            onMouseDown={(e) => {
+                                              // 드래그 시작 시에도 프리뷰를 즉시 표시
+                                              const key = String(noteId);
+                                              if (previewTimersRef.current[key]) clearTimeout(previewTimersRef.current[key]);
+                                              setPreviewNoteId(noteId);
+                                              setDraggingNoteId(noteId);
+                                              dragStartRef.current = {
+                                                mouseX: e.clientX,
+                                                mouseY: e.clientY,
+                                                startX: note.x,
+                                                startY: note.y,
+                                              };
+                                              e.stopPropagation();
+                                              e.preventDefault();
+                                            }}
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              if (dragJustHappenedRef.current) {
+                                                // 직전 드래그로 인한 클릭은 무시
+                                                return;
+                                              }
+                                              setPreviewNoteId((curr) => (curr === noteId ? null : curr));
+                                              setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, minimized: false } : n));
+                                              try { await updateNote(noteId, { minimized: false } as any); } catch {}
+                                            }}
+                                            title='드래그로 이동, 클릭하여 펼치기'
+                                          >
+                                            메모 열기
+                                          </button>
+                                          {previewNoteId === noteId && (
+                                            <div
+                                              className='absolute inset-0 rounded-md border border-yellow-300/60 bg-yellow-50/90 shadow-md pointer-events-none'
+                                              style={{ opacity: 0.6 }}
+                                            >
+                                              <div className='absolute top-0 left-0 right-0 h-7 bg-yellow-200/80 border-b border-yellow-300/70 flex items-center px-2 select-none'>
+                                                <div className='w-8 h-1 rounded bg-yellow-400/90 mr-2' />
+                                                <div className='ml-auto text-[11px] text-gray-700 font-medium'>메모 미리보기</div>
+                                              </div>
+                                              <div className='absolute left-0 right-0 bottom-0 p-2 pt-4'
+                                                style={{ top: '1.75rem', fontSize: `${note.fontSize ?? 14}px`, fontWeight: note.bold ? 700 : 400, color: (note.color ?? '#111827') + 'CC', fontStyle: note.italic ? 'italic' : 'normal', textDecoration: note.underline ? 'underline' : 'none', whiteSpace: 'pre-wrap' }}
+                                              >
+                                                {note.text || ''}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </>
+                                      ) : (
                                       <div
                                         className='group relative w-full h-full rounded-md shadow-md border border-yellow-300/60 bg-yellow-50/90 backdrop-blur-sm overflow-hidden'
                                       >
@@ -1817,34 +1897,104 @@ export function PdfDetailPage({
                                           >
                                             ×
                                           </button>
+                                          <button
+                                            className='mr-2 text-black/80 hover:text-black font-medium leading-none'
+                                            title='노트 접기'
+                                            onClick={async (e) => { e.stopPropagation(); setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, minimized: true } : n)); try { await updateNote(noteId, { minimized: true } as any); } catch {} }}
+                                          >
+                                            –
+                                          </button>
                                           <div className='w-8 h-1 rounded bg-yellow-400/90 mr-2 cursor-move' />
                                           {/* 서식 툴바 */}
-                                          <div data-role='toolbar' className='ml-auto flex items-center gap-2'>
-                                            <select
+                                           <div data-role='toolbar' className='ml-auto flex items-center gap-1'>
+                                            <input
+                                              type='number'
                                               className='text-xs bg-transparent border border-yellow-300/70 rounded px-1 py-0.5'
-                                              value={note.fontSize ?? 14}
-                                              size={5}
-                                              onChange={async (e) => {
-                                                const size = parseInt(e.target.value, 10);
+                                              value={noteFontInputs[noteId] ?? String(note.fontSize ?? 14)}
+                                              min={6}
+                                              max={96}
+                                              step={1}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  (e.target as HTMLInputElement).blur();
+                                                }
+                                              }}
+                                              onChange={(e) => {
+                                                const raw = e.target.value;
+                                                // 입력 중 임시 문자열 보관 (빈 문자열/부분 입력 허용)
+                                                setNoteFontInputs(prev => ({ ...prev, [noteId]: raw }));
+                                                if (raw === '' || /[^0-9]/.test(raw)) {
+                                                  // 숫자가 아니거나 비어있으면 바로 반영/저장하지 않음
+                                                  return;
+                                                }
+                                                const parsed = parseInt(raw, 10);
+                                                if (isNaN(parsed)) return;
+                                                const size = Math.min(96, Math.max(6, parsed));
+                                                // 즉시 UI 반영 (버튼 누름 등 유효한 숫자일 때)
+                                                setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, fontSize: size } : n));
+                                                // 디바운스 저장
+                                                const key = String(noteId);
+                                                if (fontSizeUpdateTimersRef.current[key]) {
+                                                  clearTimeout(fontSizeUpdateTimersRef.current[key]);
+                                                }
+                                                fontSizeUpdateTimersRef.current[key] = setTimeout(async () => {
+                                                  try { await updateNote(noteId, { fontSize: size } as any); } catch {}
+                                                }, 250);
+                                              }}
+                                              onBlur={async (e) => {
+                                                const raw = e.target.value.trim();
+                                                const parsed = parseInt(raw, 10);
+                                                const size = isNaN(parsed) ? (note.fontSize ?? 14) : Math.min(96, Math.max(6, parsed));
+                                                // 최종 확정 반영
                                                 setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, fontSize: size } : n));
                                                 try { await updateNote(noteId, { fontSize: size } as any); } catch {}
+                                                // 로컬 입력 상태 정리
+                                                setNoteFontInputs(prev => {
+                                                  const next = { ...prev };
+                                                  delete next[noteId];
+                                                  return next;
+                                                });
                                               }}
-                                            >
-                                              {[8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40, 44, 48].map(s => (
-                                                <option key={s} value={s}>{s}px</option>
-                                              ))}
-                                            </select>
+                                              style={{ width: 56 }}
+                                            />
                                             <button
-                                              className={`text-xs px-2 py-0.5 rounded border ${note.bold ? 'bg-yellow-400/70 border-yellow-500' : 'border-yellow-300/70 hover:bg-yellow-100/60'}`}
+                                              className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} ${note.bold ? (isDarkMode ? 'text-white font-black text-sm' : 'text-gray-900 font-black text-sm') : (isDarkMode ? 'text-gray-400 text-xs' : 'text-gray-500 text-xs')}`}
                                               onClick={async (e) => {
                                                 e.stopPropagation();
                                                 const next = !note.bold;
                                                 setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, bold: next } : n));
                                                 try { await updateNote(noteId, { bold: next } as any); } catch {}
                                               }}
+                                              aria-pressed={note.bold}
                                               title='굵게'
                                             >
-                                              B
+                                              <span style={note.bold ? { textShadow: isDarkMode ? '0 0 0.2px rgba(255,255,255,0.6)' : '0 0 0.2px rgba(0,0,0,0.6)' } : undefined}>B</span>
+                                            </button>
+                                            <button
+                                              className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} ${note.italic ? (isDarkMode ? 'text-white font-black italic text-sm' : 'text-gray-900 font-black italic text-sm') : (isDarkMode ? 'text-gray-400 italic text-xs' : 'text-gray-500 italic text-xs')}`}
+                                              onClick={async (e) => {
+                                                e.stopPropagation();
+                                                const next = !note.italic;
+                                                setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, italic: next } : n));
+                                                try { await updateNote(noteId, { italic: next } as any); } catch {}
+                                              }}
+                                              aria-pressed={note.italic}
+                                              title='이탤릭'
+                                            >
+                                              <span style={note.italic ? { textShadow: isDarkMode ? '0 0 0.2px rgba(255,255,255,0.6)' : '0 0 0.2px rgba(0,0,0,0.6)' } : undefined}>I</span>
+                                            </button>
+                                            <button
+                                              className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} ${note.underline ? (isDarkMode ? 'text-white font-black text-sm' : 'text-gray-900 font-black text-sm') : (isDarkMode ? 'text-gray-400 text-xs' : 'text-gray-500 text-xs')}`}
+                                              onClick={async (e) => {
+                                                e.stopPropagation();
+                                                const next = !note.underline;
+                                                setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, underline: next } : n));
+                                                try { await updateNote(noteId, { underline: next } as any); } catch {}
+                                              }}
+                                              aria-pressed={note.underline}
+                                              title='밑줄'
+                                            >
+                                              <span className={`${note.underline ? 'underline' : ''}`} style={note.underline ? { textShadow: isDarkMode ? '0 0 0.2px rgba(255,255,255,0.6)' : '0 0 0.2px rgba(0,0,0,0.6)' } : undefined}>U</span>
                                             </button>
                                             <input
                                               type='color'
@@ -1862,7 +2012,7 @@ export function PdfDetailPage({
 
                                         <textarea
                                           className='absolute left-0 right-0 bottom-0 bg-transparent p-2 pt-4 outline-none resize-none'
-                                          style={{ top: '1.75rem', fontSize: `${note.fontSize ?? 14}px`, fontWeight: note.bold ? 700 : 400, color: note.color ?? '#111827' }}
+                                          style={{ top: '1.75rem', fontSize: `${note.fontSize ?? 14}px`, fontWeight: note.bold ? 700 : 400, color: note.color ?? '#111827', fontStyle: note.italic ? 'italic' : 'normal', textDecoration: note.underline ? 'underline' : 'none' }}
                                           value={note.text}
                                           onChange={(e) => {
                                             const val = e.target.value;
@@ -1902,6 +2052,7 @@ export function PdfDetailPage({
                                           </div>
                                         </div>
                                       </div>
+                                      )}
                                     </div>
                                   );
                                 })}

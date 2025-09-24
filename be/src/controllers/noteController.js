@@ -15,8 +15,8 @@ class NoteController {
       const pdfDoc = await this.db.collection('pdfs').findOne({ _id: new ObjectId(pdfId) });
       if (!pdfDoc) return res.status(404).json({ error: 'PDF 문서를 찾을 수 없습니다.' });
 
-      const { text, pageNumber, x, y, width, height, pageWidth, pageHeight, fontSize, color, bold } = req.body;
-      const noteData = { pdfId, userId, text, pageNumber, x, y, width, height, pageWidth, pageHeight, fontSize, color, bold };
+      const { text, pageNumber, x, y, width, height, pageWidth, pageHeight, fontSize, color, bold, italic, underline, minimized } = req.body;
+      const noteData = { pdfId, userId, text, pageNumber, x, y, width, height, pageWidth, pageHeight, fontSize, color, bold, italic, underline, minimized };
       const saved = await Note.create(this.db, noteData);
       res.status(201).json(saved);
     } catch (err) {
@@ -67,7 +67,7 @@ class NoteController {
       if (!userId) return res.status(401).json({ error: '인증이 필요합니다.' });
 
       const updates = {};
-      const allowed = ['text', 'x', 'y', 'width', 'height', 'fontSize', 'color', 'bold'];
+      const allowed = ['text', 'x', 'y', 'width', 'height', 'fontSize', 'color', 'bold', 'italic', 'underline', 'minimized'];
       for (const key of allowed) {
         if (key in req.body) updates[key] = req.body[key];
       }

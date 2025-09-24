@@ -16,6 +16,9 @@ class Note {
     this.fontSize = typeof data.fontSize === 'number' ? data.fontSize : 14;
     this.color = data.color || '#111827'; // gray-900
     this.bold = typeof data.bold === 'boolean' ? data.bold : false;
+    this.italic = typeof data.italic === 'boolean' ? data.italic : false;
+    this.underline = typeof data.underline === 'boolean' ? data.underline : false;
+    this.minimized = typeof data.minimized === 'boolean' ? data.minimized : false;
     // Store page size at creation time for reliable scaling if needed
     this.pageWidth = data.pageWidth;
     this.pageHeight = data.pageHeight;
