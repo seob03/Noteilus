@@ -1003,12 +1003,11 @@ export function PdfDetailPage({
     }
 
     try {
-      // 선택된 텍스트의 위치 정보 계산
+      // 선택된 텍스트의 정확한 위치 정보 계산
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0) return;
 
       const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
       
       // PDF 컨테이너의 위치를 기준으로 상대 좌표 계산
       const pdfContainer = containerRef.current;
@@ -1028,59 +1027,74 @@ export function PdfDetailPage({
       // 컨테이너 중앙에 위치한 PDF의 실제 시작점 계산
       const pdfOffsetX = (containerRect.width - actualPdfWidth) / 2;
       const pdfOffsetY = (containerRect.height - actualPdfHeight) / 2;
+
+      // 선택된 텍스트의 정확한 범위 계산
+      const rangeRect = range.getBoundingClientRect();
       
-      // 선택된 영역의 상대 좌표 (PDF 영역 기준)
-      const relativeX = rect.left - containerRect.left - pdfOffsetX;
-      const relativeY = rect.top - containerRect.top - pdfOffsetY;
+      // 선택 범위의 실제 좌표 계산
+      const relativeStartX = rangeRect.left - containerRect.left - pdfOffsetX;
+      const relativeStartY = rangeRect.top - containerRect.top - pdfOffsetY;
+      const relativeEndX = rangeRect.right - containerRect.left - pdfOffsetX;
+      const relativeEndY = rangeRect.bottom - containerRect.top - pdfOffsetY;
 
       // 정규화된 좌표로 변환
-      const startX = relativeX / actualPdfWidth;
-      const startY = relativeY / actualPdfHeight;
-      const endX = (relativeX + rect.width) / actualPdfWidth;
-      const endY = (relativeY + rect.height) / actualPdfHeight;
+      const startX = relativeStartX / actualPdfWidth;
+      const startY = relativeStartY / actualPdfHeight;
+      const endX = relativeEndX / actualPdfWidth;
+      const endY = relativeEndY / actualPdfHeight;
 
-      // 선택된 영역을 하나의 하이라이트로 저장 (정확한 선택 영역만)
-      const highlightData = {
-        text: selectedText, // 사용자가 실제로 선택한 텍스트
-        pageNumber: selectedTextPageNumber,
-        startX: startX,
-        startY: startY,
-        endX: endX,
-        endY: endY,
-        pageWidth: renderedSize.width,
-        pageHeight: renderedSize.height,
-      };
+      // Selection Range에서 per-line 사각형들을 가져와 정확히 해당 부분만 하이라이트
+      const clientRects = Array.from(range.getClientRects());
 
-      const savedHighlights: Array<{
-        _id?: string;
-        id?: string;
-        text: string;
-        pageNumber: number;
-        startX: number;
-        startY: number;
-        endX: number;
-        endY: number;
-        pageWidth: number;
-        pageHeight: number;
-        createdAt: string;
-      }> = [];
+      const normalizedRects = clientRects
+        .map((r) => {
+          const nx1 = (r.left - containerRect.left - pdfOffsetX) / actualPdfWidth;
+          const ny1 = (r.top - containerRect.top - pdfOffsetY) / actualPdfHeight;
+          const nx2 = (r.right - containerRect.left - pdfOffsetX) / actualPdfWidth;
+          const ny2 = (r.bottom - containerRect.top - pdfOffsetY) / actualPdfHeight;
+          return {
+            startX: Math.max(0, Math.min(1, nx1)),
+            startY: Math.max(0, Math.min(1, ny1)),
+            endX: Math.max(0, Math.min(1, nx2)),
+            endY: Math.max(0, Math.min(1, ny2)),
+          };
+        })
+        // 유효 크기만 남김
+        .filter((nr) => nr.endX > nr.startX && nr.endY > nr.startY);
 
-      try {
-        // DB에 하이라이트 저장
-        const savedHighlight = await saveHighlight(highlightData);
-        if (savedHighlight) {
-          savedHighlights.push(savedHighlight);
-        }
-      } catch (error) {
-        console.error('하이라이트 저장 실패:', error);
+      if (normalizedRects.length === 0) {
+        toast.error('선택된 영역을 해석할 수 없습니다.');
+        return;
       }
+
+      const highlightPromises = normalizedRects.map(async (nr) => {
+        const payload = {
+          text: selectedText,
+          pageNumber: selectedTextPageNumber,
+          startX: nr.startX,
+          startY: nr.startY,
+          endX: nr.endX,
+          endY: nr.endY,
+          pageWidth: renderedSize.width,
+          pageHeight: renderedSize.height,
+        };
+        try {
+          return await saveHighlight(payload);
+        } catch (error) {
+          console.error('하이라이트 저장 실패:', error);
+          return null;
+        }
+      });
+
+      // 모든 하이라이트 저장 완료 대기
+      const savedHighlights = (await Promise.all(highlightPromises)).filter(Boolean);
 
       // 로컬 상태 업데이트
       setHighlights(prev => [...prev, ...savedHighlights]);
       
       // 하이라이트는 별도 레이어에서 처리하므로 텍스트 스팬에 직접 적용하지 않음
       
-      toast.success(`${savedHighlights.length}개의 텍스트가 하이라이트되었습니다!`);
+      toast.success(`${savedHighlights.length}개의 텍스트 영역이 하이라이트되었습니다`);
       setShowTextActions(false);
       setSelectedText('');
       setSelectionPosition(null);
