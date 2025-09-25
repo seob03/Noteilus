@@ -1826,7 +1826,7 @@ export function PdfDetailPage({
                                               if (previewTimersRef.current[key]) clearTimeout(previewTimersRef.current[key]);
                                               previewTimersRef.current[key] = setTimeout(() => {
                                                 setPreviewNoteId((curr) => (curr === noteId ? null : curr));
-                                              }, 200);
+                                              }, 350);
                                             }}
                                             onMouseDown={(e) => {
                                               // 드래그 시작 시에도 프리뷰를 즉시 표시
@@ -1859,14 +1859,14 @@ export function PdfDetailPage({
                                           </button>
                                           {previewNoteId === noteId && (
                                             <div
-                                              className='absolute inset-0 rounded-md border border-yellow-300/60 bg-yellow-50/90 shadow-md pointer-events-none'
+                                              className='absolute top-0 left-0 right-0 bottom-0 rounded-md shadow-md border border-yellow-300/60 bg-yellow-50 backdrop-blur-sm overflow-hidden pointer-events-none'
                                               style={{ opacity: 0.6 }}
                                             >
                                               <div className='absolute top-0 left-0 right-0 h-7 border-b border-orange-200 flex items-center px-2 select-none'
                                                 style={{ background: 'linear-gradient(to right, #fed7aa, #fdba74)' }}
                                               >
                                                 <div className='w-8 h-1 rounded bg-orange-300 mr-2' />
-                                                <div className='ml-auto text-[9px] text-orange-700'>미리보기</div>
+                                                <div className='ml-auto text-[7px] text-orange-700'>미리보기</div>
                                               </div>
                                               <div className='absolute left-0 right-0 bottom-0 p-2 pt-4 overflow-hidden'
                                                 style={{ top: '1.75rem', fontSize: `${note.fontSize ?? 14}px`, fontWeight: note.bold ? 700 : 400, color: (note.color ?? '#111827') + 'CC', fontStyle: note.italic ? 'italic' : 'normal', textDecoration: note.underline ? 'underline' : 'none', whiteSpace: 'pre-wrap', backgroundColor: '#fefce8' }}
