@@ -438,32 +438,31 @@ export function PdfDetailPage({
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
       if (!renderedSize) return;
-      if (draggingNoteId && dragStartRef.current) {
-        const dx = (e.clientX - dragStartRef.current.mouseX) / renderedSize.width;
-        const dy = (e.clientY - dragStartRef.current.mouseY) / renderedSize.height;
+      const dragStart = dragStartRef.current;
+      const resizeStart = resizeStartRef.current;
+      if (draggingNoteId && dragStart) {
+        const dx = (e.clientX - dragStart.mouseX) / renderedSize.width;
+        const dy = (e.clientY - dragStart.mouseY) / renderedSize.height;
         // 드래그 이동이 일정 임계값을 넘으면 클릭 억제 플래그 설정
-        if (
-          Math.abs(e.clientX - dragStartRef.current.mouseX) > 2 ||
-          Math.abs(e.clientY - dragStartRef.current.mouseY) > 2
-        ) {
+        if (Math.abs(e.clientX - dragStart.mouseX) > 2 || Math.abs(e.clientY - dragStart.mouseY) > 2) {
           dragJustHappenedRef.current = true;
         }
         setNotes(prev => prev.map(n => {
           const id = n._id || n.id;
           if (id !== draggingNoteId) return n;
-          const nx = Math.max(0, Math.min(1 - n.width, dragStartRef.current!.startX + dx));
-          const ny = Math.max(0, Math.min(1 - n.height, dragStartRef.current!.startY + dy));
+          const nx = Math.max(0, Math.min(1 - n.width, dragStart.startX + dx));
+          const ny = Math.max(0, Math.min(1 - n.height, dragStart.startY + dy));
           return { ...n, x: nx, y: ny };
         }));
       }
-      if (resizingNoteId && resizeStartRef.current) {
-        const dw = (e.clientX - resizeStartRef.current.mouseX) / renderedSize.width;
-        const dh = (e.clientY - resizeStartRef.current.mouseY) / renderedSize.height;
+      if (resizingNoteId && resizeStart) {
+        const dw = (e.clientX - resizeStart.mouseX) / renderedSize.width;
+        const dh = (e.clientY - resizeStart.mouseY) / renderedSize.height;
         setNotes(prev => prev.map(n => {
           const id = n._id || n.id;
           if (id !== resizingNoteId) return n;
-          const nw = Math.max(0.08, Math.min(1 - n.x, resizeStartRef.current!.startWidth + dw));
-          const nh = Math.max(0.04, Math.min(1 - n.y, resizeStartRef.current!.startHeight + dh));
+          const nw = Math.max(0.08, Math.min(1 - n.x, resizeStart.startWidth + dw));
+          const nh = Math.max(0.04, Math.min(1 - n.y, resizeStart.startHeight + dh));
           return { ...n, width: nw, height: nh };
         }));
       }
@@ -1810,18 +1809,24 @@ export function PdfDetailPage({
                                       {note.minimized ? (
                                         <>
                                           <button
-                                            className='px-2 py-1 text-xs rounded-md border border-yellow-300/60 bg-yellow-50/90 text-gray-800 hover:bg-yellow-100 shadow cursor-move'
+                                            className='px-2 py-1 text-xs rounded-md border border-yellow-300/60 text-gray-800 shadow cursor-move relative'
+                                            style={{ 
+                                              backgroundColor: previewNoteId === noteId ? 'transparent' : '#fffbeb', 
+                                              borderColor: previewNoteId === noteId ? 'transparent' : 'rgba(253, 230, 138, 0.6)',
+                                              boxShadow: previewNoteId === noteId ? 'none' : '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
+                                              zIndex: 50 
+                                            }}
                                             onMouseEnter={() => {
                                               const key = String(noteId);
                                               if (previewTimersRef.current[key]) clearTimeout(previewTimersRef.current[key]);
-                                              previewTimersRef.current[key] = setTimeout(() => {
-                                                setPreviewNoteId(noteId);
-                                              }, 500);
+                                              setPreviewNoteId(noteId);
                                             }}
                                             onMouseLeave={() => {
                                               const key = String(noteId);
                                               if (previewTimersRef.current[key]) clearTimeout(previewTimersRef.current[key]);
-                                              setPreviewNoteId((curr) => (curr === noteId ? null : curr));
+                                              previewTimersRef.current[key] = setTimeout(() => {
+                                                setPreviewNoteId((curr) => (curr === noteId ? null : curr));
+                                              }, 200);
                                             }}
                                             onMouseDown={(e) => {
                                               // 드래그 시작 시에도 프리뷰를 즉시 표시
@@ -1857,12 +1862,14 @@ export function PdfDetailPage({
                                               className='absolute inset-0 rounded-md border border-yellow-300/60 bg-yellow-50/90 shadow-md pointer-events-none'
                                               style={{ opacity: 0.6 }}
                                             >
-                                              <div className='absolute top-0 left-0 right-0 h-7 bg-yellow-200/80 border-b border-yellow-300/70 flex items-center px-2 select-none'>
-                                                <div className='w-8 h-1 rounded bg-yellow-400/90 mr-2' />
-                                                <div className='ml-auto text-[11px] text-gray-700 font-medium'>메모 미리보기</div>
+                                              <div className='absolute top-0 left-0 right-0 h-7 border-b border-orange-200 flex items-center px-2 select-none'
+                                                style={{ background: 'linear-gradient(to right, #fed7aa, #fdba74)' }}
+                                              >
+                                                <div className='w-8 h-1 rounded bg-orange-300 mr-2' />
+                                                <div className='ml-auto text-[9px] text-orange-700'>미리보기</div>
                                               </div>
-                                              <div className='absolute left-0 right-0 bottom-0 p-2 pt-4'
-                                                style={{ top: '1.75rem', fontSize: `${note.fontSize ?? 14}px`, fontWeight: note.bold ? 700 : 400, color: (note.color ?? '#111827') + 'CC', fontStyle: note.italic ? 'italic' : 'normal', textDecoration: note.underline ? 'underline' : 'none', whiteSpace: 'pre-wrap' }}
+                                              <div className='absolute left-0 right-0 bottom-0 p-2 pt-4 overflow-hidden'
+                                                style={{ top: '1.75rem', fontSize: `${note.fontSize ?? 14}px`, fontWeight: note.bold ? 700 : 400, color: (note.color ?? '#111827') + 'CC', fontStyle: note.italic ? 'italic' : 'normal', textDecoration: note.underline ? 'underline' : 'none', whiteSpace: 'pre-wrap', backgroundColor: '#fefce8' }}
                                               >
                                                 {note.text || ''}
                                               </div>
@@ -1871,11 +1878,12 @@ export function PdfDetailPage({
                                         </>
                                       ) : (
                                       <div
-                                        className='group relative w-full h-full rounded-md shadow-md border border-yellow-300/60 bg-yellow-50/90 backdrop-blur-sm overflow-hidden'
+                                        className='group relative w-full h-full rounded-md shadow-md border border-yellow-300/60 bg-yellow-50 backdrop-blur-sm overflow-hidden'
                                       >
                                         {/* 드래그 헤더 핸들 */}
                                         <div
-                                          className='absolute top-0 left-0 right-0 h-7 bg-yellow-200/80 border-b border-yellow-300/70 flex items-center px-2 select-none'
+                                          className='absolute top-0 left-0 right-0 h-7 border-b border-orange-200 flex items-center px-2 select-none'
+                                          style={{ background: 'linear-gradient(to right, #fed7aa, #fdba74)' }}
                                           onMouseDown={(e) => {
                                             if ((e.target as HTMLElement).closest('[data-role="toolbar"]')) return; // toolbar 클릭시 드래그 금지
                                             setDraggingNoteId(noteId);
@@ -1891,20 +1899,20 @@ export function PdfDetailPage({
                                           title='드래그하여 이동'
                                         >
                                           <button
-                                            className='mr-2 text-black/80 hover:text-black font-medium leading-none'
+                                            className='mr-2 text-orange-700 hover:text-orange-900 font-medium leading-none transition-colors'
                                             title='노트 삭제'
                                             onClick={(e) => { e.stopPropagation(); deleteNote(noteId).catch(console.error); }}
                                           >
                                             ×
                                           </button>
                                           <button
-                                            className='mr-2 text-black/80 hover:text-black font-medium leading-none'
+                                            className='mr-2 text-orange-700 hover:text-orange-900 font-medium leading-none transition-colors'
                                             title='노트 접기'
                                             onClick={async (e) => { e.stopPropagation(); setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, minimized: true } : n)); try { await updateNote(noteId, { minimized: true } as any); } catch {} }}
                                           >
                                             –
                                           </button>
-                                          <div className='w-8 h-1 rounded bg-yellow-400/90 mr-2 cursor-move' />
+                                          <div className='w-8 h-1 rounded bg-orange-300 mr-2 cursor-move' />
                                           {/* 서식 툴바 */}
                                            <div data-role='toolbar' className='ml-auto flex items-center gap-1'>
                                             <input
@@ -2012,7 +2020,7 @@ export function PdfDetailPage({
 
                                         <textarea
                                           className='absolute left-0 right-0 bottom-0 bg-transparent p-2 pt-4 outline-none resize-none'
-                                          style={{ top: '1.75rem', fontSize: `${note.fontSize ?? 14}px`, fontWeight: note.bold ? 700 : 400, color: note.color ?? '#111827', fontStyle: note.italic ? 'italic' : 'normal', textDecoration: note.underline ? 'underline' : 'none' }}
+                                          style={{ top: '1.75rem', fontSize: `${note.fontSize ?? 14}px`, fontWeight: note.bold ? 700 : 400, color: note.color ?? '#111827', fontStyle: note.italic ? 'italic' : 'normal', textDecoration: note.underline ? 'underline' : 'none', backgroundColor: '#fefce8' }}
                                           value={note.text}
                                           onChange={(e) => {
                                             const val = e.target.value;

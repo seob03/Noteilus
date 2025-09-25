@@ -20,18 +20,18 @@ class Highlight {
   // 하이라이트 생성
   static async create(db, data) {
     try {
-      console.log('🔍 Highlight.create 호출됨');
+      console.log('Highlight.create 호출됨');
       
       const highlight = new Highlight(data);
       
       const result = await db.collection('highlights').insertOne(highlight);
       
       const savedHighlight = { ...highlight, _id: result.insertedId };
-      console.log('✅ 최종 저장된 하이라이트');
+      console.log('최종 저장된 하이라이트');
       
       return savedHighlight;
     } catch (error) {
-      console.error('❌ Highlight.create 에러:', error);
+      console.error('Highlight.create 에러:', error);
       throw error;
     }
   }
