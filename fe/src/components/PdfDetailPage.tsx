@@ -1545,9 +1545,7 @@ export function PdfDetailPage({
       >
         {/* 상단 헤더 - 고정 높이 */}
         <div
-          className={`flex items-center p-4 border-b ${
-            isDarkMode ? 'border-gray-700' : 'border-gray-200'
-          } flex-shrink-0 h-16`}
+          className="flex items-center p-4 border-b border-gray-200 flex-shrink-0 h-16"
         >
           {/* 왼쪽 버튼들 */}
           <div className='flex items-center gap-4 flex-1'>
@@ -1809,12 +1807,13 @@ export function PdfDetailPage({
                                       {note.minimized ? (
                                         <>
                                           <button
-                                            className='px-2 py-1 text-xs rounded-md border border-yellow-300/60 text-gray-800 shadow cursor-move relative'
+                                            className='px-2 py-1 text-xs rounded-md border text-gray-800 shadow cursor-move relative'
                                             style={{ 
                                               backgroundColor: previewNoteId === noteId ? 'transparent' : '#fffbeb', 
-                                              borderColor: previewNoteId === noteId ? 'transparent' : 'rgba(253, 230, 138, 0.6)',
+                                              borderColor: previewNoteId === noteId ? 'transparent' : 'rgba(253, 224, 71, 0.6)', // border-yellow-300/60을 인라인으로 고정
                                               boxShadow: previewNoteId === noteId ? 'none' : '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
-                                              zIndex: 50 
+                                              zIndex: 50,
+                                              color: '#1f2937' // text-gray-800을 인라인으로 고정
                                             }}
                                             onMouseEnter={() => {
                                               const key = String(noteId);
@@ -1859,14 +1858,20 @@ export function PdfDetailPage({
                                           </button>
                                           {previewNoteId === noteId && (
                                             <div
-                                              className='absolute top-0 left-0 right-0 bottom-0 rounded-md shadow-md border border-yellow-300/60 bg-yellow-50 backdrop-blur-sm overflow-hidden pointer-events-none'
-                                              style={{ opacity: 0.6 }}
+                                              className='absolute top-0 left-0 right-0 bottom-0 rounded-md shadow-md border bg-yellow-50 backdrop-blur-sm overflow-hidden pointer-events-none'
+                                              style={{ 
+                                                borderColor: 'rgba(253, 224, 71, 0.6)', // border-yellow-300/60을 인라인으로 고정
+                                                opacity: 0.6 
+                                              }}
                                             >
-                                              <div className='absolute top-0 left-0 right-0 h-7 border-b border-orange-200 flex items-center px-2 select-none'
-                                                style={{ background: 'linear-gradient(to right, #fed7aa, #fdba74)' }}
+                                              <div className='absolute top-0 left-0 right-0 h-7 border-b flex items-center px-2 select-none'
+                                                style={{ 
+                                                  background: 'linear-gradient(to right, #fed7aa, #fdba74)',
+                                                  borderBottomColor: '#fed7aa' // border-orange-200을 인라인으로 고정
+                                                }}
                                               >
                                                 <div className='w-8 h-1 rounded bg-orange-300 mr-2' />
-                                                <div className='ml-auto text-[7px] text-orange-700'>미리보기</div>
+                                                <div className='ml-auto text-[7px]' style={{ color: '#c2410c' }}>미리보기</div>
                                               </div>
                                               <div className='absolute left-0 right-0 bottom-0 p-2 pt-4 overflow-hidden'
                                                 style={{ top: '1.75rem', fontSize: `${note.fontSize ?? 14}px`, fontWeight: note.bold ? 700 : 400, color: (note.color ?? '#111827') + 'CC', fontStyle: note.italic ? 'italic' : 'normal', textDecoration: note.underline ? 'underline' : 'none', whiteSpace: 'pre-wrap', backgroundColor: '#fefce8' }}
@@ -1878,12 +1883,16 @@ export function PdfDetailPage({
                                         </>
                                       ) : (
                                       <div
-                                        className='group relative w-full h-full rounded-md shadow-md border border-yellow-300/60 bg-yellow-50 backdrop-blur-sm overflow-hidden'
+                                        className='group relative w-full h-full rounded-md shadow-md border bg-yellow-50 backdrop-blur-sm overflow-hidden'
+                                        style={{ borderColor: 'rgba(253, 224, 71, 0.6)' }} // border-yellow-300/60을 인라인으로 고정
                                       >
                                         {/* 드래그 헤더 핸들 */}
                                         <div
-                                          className='absolute top-0 left-0 right-0 h-7 border-b border-orange-200 flex items-center px-2 select-none'
-                                          style={{ background: 'linear-gradient(to right, #fed7aa, #fdba74)' }}
+                                          className='absolute top-0 left-0 right-0 h-7 border-b flex items-center px-2 select-none'
+                                          style={{ 
+                                            background: 'linear-gradient(to right, #fed7aa, #fdba74)',
+                                            borderBottomColor: '#fed7aa' // border-orange-200을 인라인으로 고정
+                                          }}
                                           onMouseDown={(e) => {
                                             if ((e.target as HTMLElement).closest('[data-role="toolbar"]')) return; // toolbar 클릭시 드래그 금지
                                             setDraggingNoteId(noteId);
@@ -1899,14 +1908,16 @@ export function PdfDetailPage({
                                           title='드래그하여 이동'
                                         >
                                           <button
-                                            className='mr-2 text-orange-700 hover:text-orange-900 font-medium leading-none transition-colors'
+                                            className='mr-2 hover:text-orange-900 font-medium leading-none transition-colors'
+                                            style={{ color: '#c2410c' }} // text-orange-700을 인라인으로 고정
                                             title='노트 삭제'
                                             onClick={(e) => { e.stopPropagation(); deleteNote(noteId).catch(console.error); }}
                                           >
                                             ×
                                           </button>
                                           <button
-                                            className='mr-2 text-orange-700 hover:text-orange-900 font-medium leading-none transition-colors'
+                                            className='mr-2 hover:text-orange-900 font-medium leading-none transition-colors'
+                                            style={{ color: '#c2410c' }} // text-orange-700을 인라인으로 고정
                                             title='노트 접기'
                                             onClick={async (e) => { e.stopPropagation(); setNotes(prev => prev.map(n => (n._id === noteId || n.id === noteId) ? { ...n, minimized: true } : n)); try { await updateNote(noteId, { minimized: true } as any); } catch {} }}
                                           >
@@ -1917,7 +1928,12 @@ export function PdfDetailPage({
                                            <div data-role='toolbar' className='ml-auto flex items-center gap-1'>
                                             <input
                                               type='number'
-                                              className='text-xs bg-transparent border border-yellow-300/70 rounded px-1 py-0.5'
+                                              className='text-xs bg-transparent border rounded px-1 py-0.5'
+                                              style={{ 
+                                                color: '#111827', // 텍스트 색상을 라이트모드로 고정
+                                                borderColor: 'rgba(253, 224, 71, 0.7)', // border-yellow-300/70을 인라인으로 고정
+                                                width: 56
+                                              }}
                                               value={noteFontInputs[noteId] ?? String(note.fontSize ?? 14)}
                                               min={6}
                                               max={96}
@@ -1963,7 +1979,6 @@ export function PdfDetailPage({
                                                   return next;
                                                 });
                                               }}
-                                              style={{ width: 56 }}
                                             />
                                             <button
                                               className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} ${note.bold ? (isDarkMode ? 'text-white font-black text-sm' : 'text-gray-900 font-black text-sm') : (isDarkMode ? 'text-gray-400 text-xs' : 'text-gray-500 text-xs')}`}
