@@ -1545,7 +1545,9 @@ export function PdfDetailPage({
       >
         {/* 상단 헤더 - 고정 높이 */}
         <div
-          className="flex items-center p-4 border-b border-gray-200 flex-shrink-0 h-16"
+          className={`flex items-center p-4 border-b ${
+            isDarkMode ? 'border-gray-700' : 'border-gray-200'
+          } flex-shrink-0 h-16`}
         >
           {/* 왼쪽 버튼들 */}
           <div className='flex items-center gap-4 flex-1'>
